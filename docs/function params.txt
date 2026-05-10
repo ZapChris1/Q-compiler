@@ -1,0 +1,25 @@
+#define vla(s) variable length array(s);
+arrays in function param declarators
+
+arr[] is treated like a arr* //the first [] is always treated that way
+
+arr[][n] is treated like (*arr)[n] //subsequent [] is preserved
+
+arr[][] is invalid //subsequent [] must have an expression for size
+
+in arr[][n] n can be any expression //c99 allows vlas
+
+in arr[][n] n must be known for indexing //indexing matrices follows 
+arr + i *(n) + j: arr[i][j]
+
+in vlas, n must simply be in scope not neccessarily defined:
+
+void f(int n, arr[][n]) is good
+void f(arr[][n]) or f(arr[][n], int n) is bad
+
+unlike most type information, array sizes will be stored as ptrs to the part of the tree where the expression for their size is stored
+ie arr[][n + 1] stored its size as a ptr to where the expression n + 1 is, specifically they will be contained in the std::vector<AST_NODE*> arraySizes
+
+only sizes that are not decayed are stored ie
+arr[n1][n2] will store the expression n2 is in not n1
+
