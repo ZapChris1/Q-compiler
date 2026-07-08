@@ -1,17 +1,6 @@
-1+1.1, 1, 1, 1
-
-
-
-
-add a system for getting the primive type (AKA MAKE THE KEYWORDS INT FLOAT ETC INTO ACTUAL TOKENS)
-
-rework parenthised parameter
-
-add symbol table logic for identifiers: ln 382
-		//add logic for getting the size and etc of the array (for multi dim arrays): ln 431
-			//semi finished... need to add parsing for expressions (which is how the size will be handled): array_size_specifier
-	//add more function ptr support: ln 438
-
-void isPrime(int x) {
-	
+int foo(int a, int b) {
+	int x;
+	int x;
 }
+
+currently the underlying type only includes the int in int* foo, which works fine when foo is a variable but in a function the return type is int* not int
