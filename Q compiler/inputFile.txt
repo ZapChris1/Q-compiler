@@ -2,5 +2,3 @@ int foo(int a, int b) {
 	int x;
 	int x;
 }
-
-currently the underlying type only includes the int in int* foo, which works fine when foo is a variable but in a function the return type is int* not int

@@ -202,7 +202,7 @@ struct symbol_data {
     AST_NODE* destinationNode = nullptr; //used for linking functions and labels 
     symbol_data* underlyingType = nullptr; //the int in int* x, also used for structs and return type of function ptrs
     std::vector<baseType> typeObject; //contains info abt the type (doesnt include the identifier or underlying type)
-    std::vector<AST_NODE*> arraySizes; //ptr to the part of the AST where the expression for the size(s) is
+    std::vector<AST_NODE*> arraySizes; //ptr to the part of the AST where the expression for the size(s) is (also used for function parameters by pointing to the parameter_definition)
 };
 
 class scope_stack : public std::stack<std::unordered_map<std::string, symbol_data>*> {
@@ -715,7 +715,7 @@ void parse_declaration_identifiers(size_t endIndex, AST_NODE* declaration_node) 
         size_t identifierPosition = identifierNode->index;
         size_t prefixPosition = identifierPosition;
 
-        symbol_data currentSymbol;      
+        symbol_data currentSymbol;
         
         size_t position = identifierPosition + 1;
         for (; position < endIndex; position++) { //postfix operators
@@ -730,7 +730,7 @@ void parse_declaration_identifiers(size_t endIndex, AST_NODE* declaration_node) 
                 recursive_parse(arraySizeExpression); //add logic for getting the size and etc of the array (for multi dim arrays)
                 currentSymbol.arraySizes.push_back(arraySizeExpression);
             } else if (tokenVector[position].Type == closeParenthesis) {
-                parse_prefix_modifiers(identifierNode, prefixPosition, *(size_t*)tokenVector[position].value, *currentSymbol);
+                parse_prefix_modifiers(identifierNode, prefixPosition, *(size_t*)tokenVector[position].value, currentSymbol);
                 prefixPosition = position;
             } else if (tokenVector[position].Type == openParenthesis) {
                 if (!declaration_node->branches.empty()) {
@@ -746,11 +746,14 @@ void parse_declaration_identifiers(size_t endIndex, AST_NODE* declaration_node) 
                 identifierNode->branches.push_back(functionParameters);
                 recursive_parse(functionParameters);
 
+                symbol_data* underlyingTypeData = symbolTableInfo->getIdentifier(declaration_node->key);
+                underlyingTypeData->typeObject.insert(underlyingTypeData->typeObject.end(), currentSymbol.typeObject.begin(), currentSymbol.typeObject.end());
+
                 if (functionParameters->endIndex + 1 < tokenVector.size() and tokenVector[functionParameters->endIndex + 1].Type == openCurlyBracket) {
                     std::cout << "function definition" << std::endl;
 
                     identifierNode->type = syntax_type::function_definition;
-                    parse_prefix_modifiers(identifierNode, prefixPosition, start, *currentSymbol);
+                    parse_prefix_modifiers(identifierNode, prefixPosition, start, currentSymbol);
 
                     currentSymbol.destinationNode = identifierNode;
                     AST_NODE* functionBody = new AST_NODE;
@@ -768,19 +771,51 @@ void parse_declaration_identifiers(size_t endIndex, AST_NODE* declaration_node) 
                     
                     position = identifierNode->endIndex;
                     
-                    symbol_data* underlyingTypeData = symbolTableInfo->getIdentifier(declaration_node->key);
-                    underlyingTypeData->typeObject.insert(underlyingTypeData->typeObject.end(), currentSymbol.typeObject.begin(), currentSymbol.typeObject.end());
                     
                     symbol_data* prototypeDeclaration = symbolTableInfo->getIdentifier(identifierNode->key);
                     if (prototypeDeclaration != nullptr) { //if there was a previous forwards declaration
                         if (!(prototypeDeclaration->underlyingType->typeObject == underlyingTypeData->typeObject and
                         prototypeDeclaration->underlyingType->underlyingType == underlyingTypeData->underlyingType)) {
                             std::cout << "err, discrepancy between return type of function definition and declaration at: " << position << std::endl;
+                        } else {
+                            AST_NODE* prototypeParameters = prototypeDeclaration->arraySizes[0];
+                            
+                            if (prototypeParameters->branches.size() == functionParameters->branches.size()) {
+                                bool discrepancy = false;
+                                for (size_t i = 0; i < prototypeParameters->branches.size() and !discrepancy; i++) {
+                                    AST_NODE* prototypeBranch = prototypeParameters->branches[i];
+                                    AST_NODE* definitionBranch = functionParameters->branches[i];
+
+                                    symbol_data* prototypeDeclaratorData = symbolTableInfo->getIdentifier(prototypeBranch->key);
+                                    symbol_data* definitionDeclaratorData = symbolTableInfo->getIdentifier(definitionBranch->key);
+                                    
+                                    symbol_data* definitionDeclaratandData = symbolTableInfo->getIdentifier(definitionBranch->branches[0]->key);
+                                    symbol_data* prototypeDeclaratandData = symbolTableInfo->getIdentifier(prototypeBranch->branches[0]->key);
+
+                                    if (not ((prototypeDeclaratorData->typeObject == definitionDeclaratorData->typeObject //checks if the types for the parameters are all the same
+                                        and prototypeDeclaratorData->underlyingType == definitionDeclaratorData->underlyingType) //if there is a descrepancy then the flag is set to true
+                                        and (definitionDeclaratandData->typeObject == prototypeDeclaratandData->typeObject
+                                            and definitionDeclaratandData->underlyingType == prototypeDeclaratandData->underlyingType))) {
+                                        discrepancy = true;
+                                    }
+                                }
+                                if (discrepancy) std::cout << "err, discrepancy between return type of function definition and declaration at: " << position << std::endl;
+                            }
+                            else {
+                                std::cout << "err, discrepancy between return type of function definition and declaration at: " << position << std::endl;
+                            }
                         }
                     }
+                    else {
+                        symbol_data* definitonData = symbolTableInfo->declareIdentifier(identifierNode->key);
+                        definitonData->underlyingType = underlyingTypeData;
+                        definitonData->arraySizes.push_back(functionParameters);
+                    }
+
 
                     return position;
                 } else {
+                    
                     std::cout << "function declaration" << std::endl;
                     identifierNode->type = syntax_type::function_declaration;
                     identifierNode->endIndex = functionParameters->endIndex;
