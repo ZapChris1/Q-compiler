@@ -9,18 +9,67 @@
 #include <algorithm>
 #include <unordered_map>
 #include <stack>
+#include <cassert>
 
 
-char constexpr BINDING_POWER_PARENTHESIS = 2;
-char constexpr BINDING_POWER_BRACKET = 1;
-char constexpr BINDING_POWER_DEREFRENCE_POINTER = -1;
-char constexpr BINDING_POWER_AMPERSAND = -1;
-char constexpr BINDING_POWER_MULTIPLICATION = -2;
-char constexpr BINDING_POWER_DIVISION = -2;
-char constexpr BINDING_POWER_ADDITION = -3;
-char constexpr BINDING_POWER_SUBTRACTION = -3;
-char constexpr BINDING_POWER_EQUALITY_SIGN = -31;
-char constexpr BINDING_POWER_COMMA = -32;
+char constexpr BINDING_POWER_PARENTHESIS = 15; //( //led
+char constexpr BINDING_POWER_BRACKET = 15; //[ //led
+char constexpr BINDING_POWER_STRUCT_ACCESS = 15; //same for . and -> //led
+char constexpr BINDING_POWER_INCREMENT_POSTFIX = 15; //++ //led
+char constexpr BINDING_POWER_DECREMENT_POSTFIX = 15; //-- //led
+
+char constexpr BINDING_POWER_INCREMENT_PREFIX = 14; //++ //nud
+char constexpr BINDING_POWER_DECREMENT_PREFIX = 14; //-- //nud
+char constexpr BINDING_POWER_UNARY_POSITIVE = 14; //+ //nud
+char constexpr BINDING_POWER_UNARY_NEGATION = 14; //- //nud
+char constexpr BINDING_POWER_LOGICAL_NOT = 14; //! //nud
+char constexpr BINDING_POWER_BITWISE_NOT = 14; //~ //nud
+char constexpr BINDING_POWER_DEREFRENCE_POINTER = 14; //* //nud
+char constexpr BINDING_POWER_AMPERSAND = 14; //& //nud
+char constexpr BINDING_POWER_SIZEOF = 14; //sizeof //nud
+char constexpr BINDING_POWER_ALIGNOF = 14; //alignof //nud
+
+char constexpr BINDING_POWER_MULTIPLICATION = 13; //* //led
+char constexpr BINDING_POWER_DIVISION = 13; // / //led
+char constexpr BINDING_POWER_MODULUS = 13; //% //led
+
+char constexpr BINDING_POWER_BITWISE_SHIFT_LEFT = 11; //<< //led
+char constexpr BINDING_POWER_BITWISE_SHIFT_RIGHT = 11; //>> //led
+
+char constexpr BINDING_POWER_GREATER_THAN = 10; //> //led
+char constexpr BINDING_POWER_LESS_THAN = 10; //< //led
+char constexpr BINDING_POWER_GREATER_THAN_OR_EQUAL = 10; //>= //led
+char constexpr BINDING_POWER_LESS_THAN_OR_EQUAL = 10; //<= //led
+
+char constexpr BINDING_POWER_EQUALS_CHECK = 9; //== //led
+char constexpr BINDING_POWER_NOT_EQUALS_CHECK = 9; //!= //led
+
+char constexpr BINDING_POWER_BITWISE_AND = 8; //& //led
+
+char constexpr BINDING_POWER_BITWISE_XOR = 7; //^ //led
+
+char constexpr BINDING_POWER_BITWISE_OR = 6; //| //led
+
+char constexpr BINDING_POWER_LOGICAL_AND = 5; //&&, and //led
+
+char constexpr BINDING_POWER_LOGICAL_OR = 4; //||, or //led
+
+char constexpr BINDING_POWER_CONDITIONAL = 3; //? //led //implement its parsing seperately
+
+//led
+char constexpr BINDING_POWER_ASSIGNMENT = 2; //=
+char constexpr BINDING_POWER_ADDITION_ASSIGNMENT = 2; //+=
+char constexpr BINDING_POWER_SUBTRACTION_ASSIGNMENT = 2; //-=
+char constexpr BINDING_POWER_MULTIPLICATION_ASSIGNMENT = 2; //*=
+char constexpr BINDING_POWER_MODULUS_ASSIGNMENT = 2; //%=
+char constexpr BINDING_POWER_DIVISION_ASSIGNMENT = 2; // /=
+char constexpr BINDING_POWER_BITWISE_SHIFT_LEFT_ASSIGNMENT = 2; //<<=
+char constexpr BINDING_POWER_BITWISE_SHIFT_RIGHT_ASSIGNMENT = 2; //>>=
+char constexpr BINDING_POWER_BITWISE_AND_ASSIGNMENT = 2; //&=
+char constexpr BINDING_POWER_BITWISE_XOR_ASSIGNMENT = 2; //^=
+char constexpr BINDING_POWER_BITWISE_OR_ASSIGNMENT = 2; //|=
+
+char constexpr BINDING_POWER_COMMA = 1; //,
 
 struct token; //forward declaration
 
@@ -55,6 +104,28 @@ enum type {
     addition,
     multiplication,
     division,
+    modulus,
+    shiftLeft,
+    shiftRight,
+    greaterThan,
+    lessThan,
+    greaterThanEqual,
+    lessThanEqual,
+    equalsComp,
+    notEquals,
+    xOr,
+    bitwiseOr,
+    And,
+    Or,
+    logicalNot,
+    bitwiseNot,
+    sizeOf,
+    alignOf,
+    conditional,
+    increment,
+    decrement,
+    structAccess,
+    structPointerAccess,
     operation,
     variable,
     openParenthesis,
@@ -97,8 +168,122 @@ enum type {
     restrictType,
     staticType,
     equals,
+    plusEquals,
+    minusEquals,
+    multEquals,
+    modEquals,
+    divEquals,
+    shiftLeftEquals,
+    shiftRightEquals,
+    andEquals,
+    xorEquals,
+    orEquals,
     null
 };
+
+
+char getPriority(type inputType, bool nud) {
+    if (nud) {
+        switch (inputType) { //nud
+        case type::increment:
+            return BINDING_POWER_INCREMENT_PREFIX;
+        case type::decrement:
+            return BINDING_POWER_DECREMENT_PREFIX;
+        case type::addition:
+            return BINDING_POWER_UNARY_POSITIVE;
+        case type::subtraction:
+            return BINDING_POWER_UNARY_NEGATION;
+        case type::logicalNot:
+            return BINDING_POWER_LOGICAL_NOT;
+        case type::bitwiseNot:
+            return BINDING_POWER_BITWISE_NOT;
+        case type::multiplication:
+            return BINDING_POWER_DEREFRENCE_POINTER;
+        case type::address:
+            return BINDING_POWER_AMPERSAND;
+        case type::sizeOf:
+            return BINDING_POWER_SIZEOF;
+        case type::alignOf:
+            return BINDING_POWER_ALIGNOF;
+        case type::comma:
+            return BINDING_POWER_COMMA;
+        default:
+            return 0;
+        }
+    }
+    else {
+        switch (inputType) { //led
+        case type::increment:
+            return BINDING_POWER_INCREMENT_POSTFIX;
+        case type::decrement:
+            return BINDING_POWER_DECREMENT_POSTFIX;
+        case type::structAccess:
+        case type::structPointerAccess:
+            return BINDING_POWER_STRUCT_ACCESS;
+        case type::multiplication:
+            return BINDING_POWER_MULTIPLICATION;
+        case type::division:
+            return BINDING_POWER_DIVISION;
+        case type::modulus:
+            return BINDING_POWER_MODULUS;
+        case type::shiftLeft:
+            return BINDING_POWER_BITWISE_SHIFT_LEFT;
+        case type::shiftRight:
+            return BINDING_POWER_BITWISE_SHIFT_RIGHT;
+        case type::greaterThan:
+            return BINDING_POWER_GREATER_THAN;
+        case type::lessThan:
+            return BINDING_POWER_LESS_THAN;
+        case type::greaterThanEqual:
+            return BINDING_POWER_GREATER_THAN_OR_EQUAL;
+        case type::lessThanEqual:
+            return BINDING_POWER_GREATER_THAN_OR_EQUAL;
+        case type::equalsComp:
+            return BINDING_POWER_EQUALS_CHECK;
+        case type::notEquals:
+            return BINDING_POWER_NOT_EQUALS_CHECK;
+        case type::address:
+            return BINDING_POWER_BITWISE_AND;
+        case type::xOr:
+            return BINDING_POWER_BITWISE_XOR;
+        case type::bitwiseOr:
+            return BINDING_POWER_BITWISE_OR;
+        case type::And:
+            return BINDING_POWER_LOGICAL_AND;
+        case type::Or:
+            return BINDING_POWER_LOGICAL_OR;
+        case type::conditional:
+            return BINDING_POWER_CONDITIONAL;
+        case type::equals:
+            return BINDING_POWER_ASSIGNMENT;
+        case type::plusEquals:
+            return BINDING_POWER_ADDITION_ASSIGNMENT;
+        case type::minusEquals:
+            return BINDING_POWER_ADDITION_ASSIGNMENT;
+        case type::multEquals:
+            return BINDING_POWER_MULTIPLICATION_ASSIGNMENT;
+        case type::modEquals:
+            return BINDING_POWER_MODULUS_ASSIGNMENT;
+        case type::divEquals:
+            return BINDING_POWER_DIVISION_ASSIGNMENT;
+        case type::shiftLeftEquals:
+            return BINDING_POWER_BITWISE_SHIFT_LEFT_ASSIGNMENT;
+        case type::shiftRightEquals:
+            return BINDING_POWER_BITWISE_SHIFT_RIGHT_ASSIGNMENT;
+        case type::andEquals:
+            return BINDING_POWER_BITWISE_AND_ASSIGNMENT;
+        case type::xorEquals:
+            return BINDING_POWER_BITWISE_XOR_ASSIGNMENT;
+        case type::orEquals:
+            return BINDING_POWER_BITWISE_XOR_ASSIGNMENT;
+        case type::comma:
+            return BINDING_POWER_COMMA;
+        default:
+            return 0;
+        }
+    }
+}
+
 
 inline baseType tokenToBaseType(type input) { //for getting base types in declarations ie the int in int x or int** x[] etc
     switch (input) {
@@ -159,13 +344,49 @@ enum syntax_type {
     division_operation,
     addition_operation,
     subtraction_operation,
+    member_access,
+    pointer_member_access,
+    modulus_operation,
+    shift_left_operation,
+    shift_right_operation,
+    greater_than_comparison,
+    less_than_comparison,
+    equal_comparison,
+    not_equal_comparison,
+    less_than_equal_comparison,
+    greater_than_equal_comparison,
+    address_operation,
+    bitwise_and_operation,
+    bitwise_not_operation,
+    bitwise_xor_operation,
+    logical_or_operation,
+    logical_and_operation,
+    logical_not_operation,
+    size_of_operation,
+    align_of_operation,
+    unary_positive,
+    unary_negation,
+    prefix_increment,
+    postfix_increment,
+    prefix_decrement,
+    postfix_decrement,
+    assignment,
+    addition_assignment,
+    subtraction_assignment,
+    multiplication_assignment,
+    division_assignment,
+    modulus_assignment,
+    shift_left_assignment,
+    shift_right_assignment,
+    and_assignment,
+    xor_assignment,
+    or_assignment,
     comma_seperator,
     array_size_specifier,
     grammar_statement,
     scope_block,
     single_line,
     single_line_with_scope,
-    assignment,
     identifier
 };
 
@@ -470,34 +691,59 @@ void orderBrackets(std::vector<bracket_information>& bracketVector) {
 
 AST_NODE* parse_token(size_t inputIndex, AST_NODE* lastNode, bool nud); //protoype
 
-AST_NODE* pratt_parse_node(AST_NODE* lastNode, size_t inputNodeIndex, bool nud) {
+AST_NODE* pratt_parse_node(AST_NODE* lastNode, size_t inputNodeIndex, bool nud, size_t end = 0) {
+    static size_t endIndex = 0;
+    if (end) endIndex = end;
     size_t rightNodeIndex = inputNodeIndex + 1;
-    token* rightToken = &tokenVector[rightNodeIndex];
-    token* lastToken = &tokenVector[lastNode->index];
-    if (lastToken->priority >= rightToken->priority) {
-        return parse_token(inputNodeIndex, lastNode, nud); //return parsed self
-    } else { //if rightPriority is greater //add a while loop to continue this recursion untill the right priority is no longer higher aka the right tree is complete
-        AST_NODE* selfNode = parse_token(inputNodeIndex, lastNode, nud);
-        AST_NODE* rightData = nullptr;
-        if (selfNode->endIndex < rightNodeIndex) rightData = pratt_parse_node(selfNode, rightNodeIndex, false);
-        else rightData = selfNode;
-        while (lastToken->priority < tokenVector[rightData->endIndex + 1].priority) { //if this still greater then continue building the rightNode tree
-            rightData = pratt_parse_node(rightData, rightData->endIndex + 1, false);
+    if (rightNodeIndex < end) {
+        token* rightToken = &tokenVector[rightNodeIndex];
+        char rightPriority = getPriority(rightToken->Type, false); //we are assuming the rightToken to be led, this assumption can be corrected later
+        if (lastNode != nullptr) {
+            token* lastToken = &tokenVector[lastNode->index];
+            if (lastToken->priority >= rightPriority) {
+                return parse_token(inputNodeIndex, lastNode, false); //return parsed self
+            }
+            else { //if rightPriority is greater //add a while loop to continue this recursion untill the right priority is no longer higher aka the right tree is complete
+                AST_NODE* selfNode = parse_token(inputNodeIndex, lastNode, nud);
+                AST_NODE* rightData = nullptr;
+                if (selfNode->endIndex < rightNodeIndex) rightData = pratt_parse_node(selfNode, rightNodeIndex, false);
+                else rightData = selfNode;
+                while (lastToken->priority < tokenVector[rightData->endIndex + 1].priority and rightData->endIndex + 1 < endIndex) { //if this still greater then continue building the rightNode tree
+                    rightData = pratt_parse_node(rightData, rightData->endIndex + 1, false);
+                }
+                return rightData;
+            }
         }
-        return rightData;
+        else {
+            token* selfToken = &tokenVector[inputNodeIndex];
+            if (selfToken->priority >= rightPriority) {
+                return parse_token(inputNodeIndex, lastNode, nud); //return parsed self
+            }
+            else {
+                AST_NODE* selfNode = parse_token(inputNodeIndex, lastNode, nud);
+                AST_NODE* rightData = nullptr;
+                if (selfNode->endIndex < rightNodeIndex) rightData = pratt_parse_node(selfNode, rightNodeIndex, false);
+                else rightData = selfNode;
+                return rightData;
+            }
+        }
+    } else {
+        return parse_token(inputNodeIndex, lastNode, nud); //return parsed self
     }
 }
 
 //parse expression and automatically child it to an input parentnode bracket
 AST_NODE* parse_expression(AST_NODE* inputNode) { //assuming index is '(' and endindex is ')'
     AST_NODE* leftSide = nullptr;
-    
     if (inputNode->index + 1 < inputNode->endIndex) {
-        leftSide = pratt_parse_node(leftSide, inputNode->index + 1, true); //skip to the last parsed node    
-        for (size_t index = leftSide->endIndex + 1; index < inputNode->endIndex; index++) {
-            if (tokenVector[index].Type == eol) goto end;
-            leftSide = pratt_parse_node(leftSide, index, false); //skip to the last parsed node
-            index = leftSide->endIndex;
+        leftSide = pratt_parse_node(leftSide, inputNode->index + 1, true, inputNode->endIndex); //skip to the last parsed node    
+        if (leftSide != nullptr) {
+            for (size_t index = leftSide->endIndex + 1; index < inputNode->endIndex; index++) {
+                if (tokenVector[index].Type == eol) goto end;
+                AST_NODE* temp = pratt_parse_node(leftSide, index, true, inputNode->endIndex);
+                if (temp != nullptr) leftSide = temp; //skip to the last parsed node    
+                index = leftSide->endIndex;
+            }
         }
     }
     end:
@@ -508,39 +754,35 @@ AST_NODE* parse_expression(AST_NODE* inputNode) { //assuming index is '(' and en
 AST_NODE* parse_expression(size_t start, size_t end) { //assuming start is '(' and end is ')'
     AST_NODE* leftSide = nullptr;
     if (start + 1 < end) {
-        leftSide = pratt_parse_node(leftSide, start + 1, true); //skip to the last parsed node    
-        for (size_t index = leftSide->endIndex + 1; index < end; index++) {
-            if (tokenVector[index].Type == eol) return leftSide;
-            leftSide = pratt_parse_node(leftSide, index, false); //skip to the last parsed node
-            index = leftSide->endIndex;
+        leftSide = pratt_parse_node(leftSide, start + 1, true, end); //skip to the last parsed node    
+        assert(leftSide != nullptr);
+        if (leftSide != nullptr) {
+            for (size_t index = leftSide->endIndex + 1; index < end; index++) {
+                if (tokenVector[index].Type == eol) return leftSide;
+
+                AST_NODE* temp = pratt_parse_node(leftSide, index, true, end);
+                if (temp != nullptr) leftSide = temp; //skip to the last parsed node    
+
+                index = leftSide->endIndex;
+            }
         }
     }
     return leftSide; //returns top node of the expression //doesnt automatically add as a child
 }
 
 void parse_arguments(AST_NODE* inputNode) { //assuming index is '(' and endindex is ')'
-    unsigned int bracketCounter = 0;
     size_t lastCommaIndex = inputNode->index + 1;
     for (size_t index = inputNode->index + 1; index < inputNode->endIndex; inputNode++) {
         token* currentToken = &tokenVector[index];
         switch (currentToken->Type) {
-        case openBracket:
-        case openCurlyBracket:
         case openParenthesis:
-            bracketCounter++;
-            break;
-        case closeBracket:
-        case closeCurlyBracket:
-        case closeParenthesis:
-            bracketCounter--;
+            index = *(size_t*)currentToken->value;
             break;
         case comma:
-            if (bracketCounter == 0) {
-                AST_NODE* currentExpression = parse_expression(lastCommaIndex - 1, index);
-                currentExpression->parent = inputNode;
-                inputNode->branches.push_back(currentExpression);
-                lastCommaIndex = index;
-            }
+            AST_NODE* currentExpression = parse_expression(lastCommaIndex - 1, index);
+            currentExpression->parent = inputNode;
+            inputNode->branches.push_back(currentExpression);
+            lastCommaIndex = index;
             break;
         }
     }
@@ -548,15 +790,16 @@ void parse_arguments(AST_NODE* inputNode) { //assuming index is '(' and endindex
         AST_NODE* currentExpression = parse_expression(lastCommaIndex - 1, inputNode->endIndex);
         currentExpression->parent = inputNode;
         inputNode->branches.push_back(currentExpression);
-    }
-    else {
+    } else {
         std::cout << "Comma with nothing infront of it syntax error" << std::endl;
     }
 }
 
 AST_NODE* parse_token(size_t inputIndex, AST_NODE* lastNode, bool nud) {
+    std::cout << "parsing token" << inputIndex << std::endl;
     token* inputToken = &tokenVector[inputIndex];
     AST_NODE* inputNode = inputToken->node;
+    assert(!inputNode);
     if (inputNode) return inputNode; //if theres already a tree built no need to rebuild
     inputNode = new AST_NODE();
     inputNode->index = inputIndex;
@@ -575,7 +818,9 @@ AST_NODE* parse_token(size_t inputIndex, AST_NODE* lastNode, bool nud) {
         inputNode->branches.push_back(lastNode);
     };
 
-    auto binary_operation = [inputNode, lastNode, &inputIndex, unary_prefix_operation, unary_postfix_operation]() {
+    auto binary_operation = [nud, inputNode, lastNode, &inputIndex, unary_prefix_operation, unary_postfix_operation]() {
+        assert(not nud);
+        if (nud) std::cout << "err attempting a binary operation on a nud token:" << tokenVector[inputIndex].Type << "  at: " << inputIndex << std::endl;
         unary_prefix_operation();
         unary_postfix_operation();
     };
@@ -583,27 +828,201 @@ AST_NODE* parse_token(size_t inputIndex, AST_NODE* lastNode, bool nud) {
     switch (inputToken->Type) {
     case multiplication:
         if (nud) {
-            unary_prefix_operation();
             inputNode->type = syntax_type::derefrence_operation;
-            break;
+            unary_prefix_operation();
         }
-        inputNode->type = syntax_type::multiplication_operation;
-        binary_operation();
+        else {
+            inputNode->type = syntax_type::multiplication_operation;
+            binary_operation();
+        }
         break;
     case division:
         inputNode->type = syntax_type::division_operation;
         binary_operation();
         break;
-    case subtraction:
-        inputNode->type = syntax_type::subtraction_operation;
+    case structAccess:
+        inputNode->type = syntax_type::member_access;
         binary_operation();
         break;
-    case addition:
-        inputNode->type = syntax_type::addition_operation;
+    case structPointerAccess:
+        inputNode->type = syntax_type::pointer_member_access;
         binary_operation();
+        break;
+    case modulus:
+        inputNode->type = syntax_type::modulus_operation;
+        binary_operation();
+        break;
+    case shiftLeft:
+        inputNode->type = syntax_type::shift_left_operation;
+        binary_operation();
+        break;
+    case shiftRight:
+        inputNode->type = syntax_type::shift_right_operation;
+        binary_operation();
+        break;
+    case greaterThan:
+        inputNode->type = syntax_type::greater_than_comparison;
+        binary_operation();
+        break;
+    case lessThan:
+        inputNode->type = syntax_type::less_than_comparison;
+        binary_operation();
+        break;
+    case greaterThanEqual:
+        inputNode->type = syntax_type::greater_than_equal_comparison;
+        binary_operation();
+        break;
+    case equalsComp:
+        inputNode->type = syntax_type::equal_comparison;
+        binary_operation();
+        break;
+    case notEquals:
+        inputNode->type = syntax_type::not_equal_comparison;
+        binary_operation();
+        break;
+    case lessThanEqual:
+        inputNode->type = syntax_type::less_than_equal_comparison;
+        binary_operation();
+        break;
+    case address:
+        if (nud) {
+            inputNode->type = syntax_type::address_operation;
+            unary_prefix_operation();
+        }
+        else {
+            inputNode->type = syntax_type::bitwise_and_operation;
+            binary_operation();
+        }
+        break;
+    case bitwiseNot:
+        if (nud) {
+            inputNode->type = syntax_type::bitwise_not_operation;
+            unary_prefix_operation();
+        }
+        else std::cout << "attempted to parse nud operation as led at" << inputIndex << std::endl;
+        break;
+    case logicalNot:
+        if (nud) {
+            inputNode->type = syntax_type::logical_not_operation;
+            unary_prefix_operation();
+        }
+        else std::cout << "attempted to parse nud operation as led at" << inputIndex << std::endl;
+        break;
+    case xOr:
+        inputNode->type = syntax_type::bitwise_xor_operation;
+        binary_operation();
+        break;
+    case bitwiseOr:
+        inputNode->type = syntax_type::logical_or_operation;
+        binary_operation();
+        break;
+    case Or:
+        inputNode->type = syntax_type::logical_or_operation;
+        binary_operation();
+        break;
+    case And:
+        inputNode->type = syntax_type::logical_and_operation;
+        binary_operation();
+        break;
+    case sizeOf: //add support for sizeof in the future
+        if (nud) {
+            inputNode->type = syntax_type::size_of_operation;
+            unary_prefix_operation();
+        }
+        else std::cout << "attempted to parse nud operation as led at" << inputIndex << std::endl;
+        break;
+    case alignOf: //add support for alignof in the future
+        if (nud) {
+            inputNode->type = syntax_type::align_of_operation;
+            unary_prefix_operation();
+        }
+        else std::cout << "attempted to parse nud operation as led at" << inputIndex << std::endl;
+        break;
+    case conditional: //add conditional support in the future
+        std::cout << "conditionals are not yet supported!" << std::endl;
+        break;
+
+    case addition:
+        if (nud) {
+            inputNode->type = syntax_type::unary_positive;
+            unary_prefix_operation();
+        }
+        else {
+            inputNode->type = syntax_type::addition_operation;
+            binary_operation();
+        }
+        break;
+    case subtraction:
+        if (nud) {
+            inputNode->type = syntax_type::unary_negation;
+            unary_prefix_operation();
+        } else {
+            inputNode->type = syntax_type::subtraction_operation;
+            binary_operation();
+        }
+        break;
+    case increment:
+        if (nud) {
+            inputNode->type = syntax_type::prefix_increment;
+            unary_prefix_operation();
+        }
+        else {
+            inputNode->type = syntax_type::postfix_increment;
+            unary_postfix_operation();
+        }
+        break;
+    case decrement:
+        if (nud) {
+            inputNode->type = syntax_type::prefix_decrement;
+            unary_prefix_operation();
+        }
+        else {
+            inputNode->type = syntax_type::postfix_decrement;
+            unary_postfix_operation();
+        }
         break;
     case equals:
         inputNode->type = syntax_type::assignment;
+        binary_operation();
+        break;
+    case plusEquals:
+        inputNode->type = syntax_type::addition_assignment;
+        binary_operation();
+        break;
+    case minusEquals:
+        inputNode->type = syntax_type::subtraction_assignment;
+        binary_operation();
+        break;
+    case multEquals:
+        inputNode->type = syntax_type::multiplication_assignment;
+        binary_operation();
+        break;
+    case divEquals:
+        inputNode->type = syntax_type::division_assignment;
+        binary_operation();
+        break;
+    case modEquals:
+        inputNode->type = syntax_type::modulus_assignment;
+        binary_operation();
+        break;
+    case shiftLeftEquals:
+        inputNode->type = syntax_type::shift_left_assignment;
+        binary_operation();
+        break;
+    case shiftRightEquals:
+        inputNode->type = syntax_type::shift_right_assignment;
+        binary_operation();
+        break;
+    case andEquals: //bitwise and not logical and
+        inputNode->type = syntax_type::and_assignment;
+        binary_operation();
+        break;
+    case xorEquals:
+        inputNode->type = syntax_type::xor_assignment;
+        binary_operation();
+        break;
+    case orEquals: //bitwise and not logical or
+        inputNode->type = syntax_type::or_assignment;
         binary_operation();
         break;
     case comma:
@@ -626,10 +1045,13 @@ AST_NODE* parse_token(size_t inputIndex, AST_NODE* lastNode, bool nud) {
             size_t end = *(size_t*)nextToken->value;
             inputNode->endIndex = end;
 
-            AST_NODE* functionArgs = parse_expression(start, end);
+            AST_NODE* functionArgs = new AST_NODE;
+            functionArgs->index = start;
+            functionArgs->endIndex = end;
+            functionArgs->type = syntax_type::function_arguments;
+            parse_arguments(functionArgs);
             functionArgs->parent = inputNode;
             inputNode->branches.push_back(functionArgs);
-            if (functionArgs->type == comma) functionArgs->type = syntax_type::function_arguments;
         } else {
             inputNode->type = syntax_type::identifier;
             std::string key = std::string((char*)inputToken->value, inputToken->size);
@@ -639,7 +1061,9 @@ AST_NODE* parse_token(size_t inputIndex, AST_NODE* lastNode, bool nud) {
         break;
     }
     case eol:
-        std::cout << "err: attempting to parse ; at: " << inputIndex << std::endl;
+        if (nud) {
+            std::cout << "err: attempting to parse ; at: " << inputIndex << std::endl;
+        }
         delete inputNode;
         return nullptr;
     default:
@@ -716,7 +1140,7 @@ void parse_declaration_identifiers(size_t endIndex, AST_NODE* declaration_node) 
         size_t prefixPosition = identifierPosition;
 
         symbol_data currentSymbol;
-        
+
         size_t position = identifierPosition + 1;
         for (; position < endIndex; position++) { //postfix operators
             if (tokenVector[position].Type == openBracket) {
@@ -822,16 +1246,10 @@ void parse_declaration_identifiers(size_t endIndex, AST_NODE* declaration_node) 
                     position = identifierNode->endIndex;
                 }
             }
-            else if (tokenVector[position].Type == comma) {
+            else if (tokenVector[position].Type == equals or tokenVector[position].Type == comma) {
                 parse_prefix_modifiers(identifierNode, prefixPosition, start, currentSymbol);
                 currentSymbol.underlyingType = symbolTableInfo->getIdentifier(declaration_node->key);
-                symbolTableInfo->declareIdentifier(identifierNode->key, currentSymbol);
-                return position;
-            }
-            else if (tokenVector[position].Type == equals) {
-                parse_prefix_modifiers(identifierNode, prefixPosition, start, currentSymbol);
-                currentSymbol.underlyingType = symbolTableInfo->getIdentifier(declaration_node->key);
-                symbolTableInfo->declareIdentifier(identifierNode->key, currentSymbol);
+                symbolTableInfo->declareIdentifier(identifierNode->key, currentSymbol); 
                 return position;
             }
         }
@@ -841,16 +1259,20 @@ void parse_declaration_identifiers(size_t endIndex, AST_NODE* declaration_node) 
         return (size_t)0;
     };
     bool lastIsAssignment = false;
-    for (size_t position = startIndex; position < endIndex; position++) { //change the equals to be per identifier
+    size_t position = startIndex;
+    for (; position < endIndex; position++) { //change the equals to be per identifier
         token* currentToken = &tokenVector[position];
         switch (currentToken->Type) {
+        case openParenthesis:
+            position = *(size_t*)currentToken->value;
         case comma:
             if (lastIsAssignment) {
-                if (declaration_node->branches.size() > 0) {
+                if (!(declaration_node->branches.empty())) {
                     AST_NODE* identifierNode = declaration_node->branches.back();
                     AST_NODE* value = parse_expression(start - 1, position);
                     identifierNode->branches.push_back(value);
                     value->parent = identifierNode;
+                    identifierNode->endIndex = value->endIndex;
                     lastIsAssignment = false;
                 }
                 else {
@@ -878,10 +1300,10 @@ void parse_declaration_identifiers(size_t endIndex, AST_NODE* declaration_node) 
             }
             
             if (newPosition == 0) {
-                declaration_node->endIndex = position;
-                return;
+                goto end;
             }
             else {
+                declaration_node->endIndex = newPosition;
                 identifierNode->endIndex = newPosition;
                 
                 position = newPosition;
@@ -898,11 +1320,19 @@ void parse_declaration_identifiers(size_t endIndex, AST_NODE* declaration_node) 
             break;
         }
     }
+end:
     if (declaration_node->branches.empty()) {
         std::cout << "err empty declaration at: " << declaration_node->index << std::endl;
     }
     else {
-        declaration_node->endIndex = declaration_node->branches.back()->endIndex;
+        if (lastIsAssignment) {
+            AST_NODE* identifierNode = declaration_node->branches.back();
+            AST_NODE* value = parse_expression(start - 1, position);
+            identifierNode->branches.push_back(value);
+            value->parent = identifierNode;
+            identifierNode->endIndex = value->endIndex;
+            declaration_node->endIndex = identifierNode->endIndex;
+        }
     }
 }
 
@@ -1076,7 +1506,7 @@ void parse_block(AST_NODE* inputNode) { //lastStatement is the first index check
             }
             else { //pure expression, use parse_expression()
                 parse_line(inputNode, lastStatement, i);
-                lastStatement = i;
+                lastStatement = i + 1;
             }
             break;
         case ifStatement:
@@ -1140,7 +1570,7 @@ void parse_block(AST_NODE* inputNode) { //lastStatement is the first index check
                     else {
                         i = declarationSpecifierNode->branches[0]->endIndex; //if it was a function skip to the end of the function
                     }
-                    lastStatement = i;
+                    lastStatement = i + 1;
                 }
             } else { //first time seeing data, must be a declaration
                 std::cout << "attempted to parse unknown identifier:" << key << ": " << std::endl;
@@ -1292,7 +1722,9 @@ void interpretSymbol(size_t startOfSymbol, size_t endOfSymbol, type currentType,
     size_t length = endOfSymbol - startOfSymbol;
     std::cout << "token: " << source.substr(startOfSymbol, length) << ": Start of Symbol " << startOfSymbol << " length " << length << " type: "  << currentType << std::endl;
     token currentNode;
+    
     currentNode.Type = currentType;
+    
     switch (currentType) {
         case unsignedIntLiteral: {
             unsigned int value = static_cast<unsigned int>(std::stoi(source.substr(startOfSymbol, length))); //casting to unsigned int
@@ -1317,19 +1749,6 @@ void interpretSymbol(size_t startOfSymbol, size_t endOfSymbol, type currentType,
         case doubleLiteral: {
             double value = std::stod(source.substr(startOfSymbol, length));
             setValue(currentNode, startOfSymbol, value);
-            break;
-        }
-        case multiplication: {
-            currentNode.priority = BINDING_POWER_MULTIPLICATION;
-            break;
-        }
-        case addition:
-        case subtraction: {
-            currentNode.priority = BINDING_POWER_SUBTRACTION;
-            break;
-        }
-        case comma: {
-            currentNode.priority = BINDING_POWER_COMMA;
             break;
         }
         case openParenthesis:
@@ -1364,6 +1783,13 @@ void interpretSymbol(size_t startOfSymbol, size_t endOfSymbol, type currentType,
         case variable:
             setValue(currentNode, startOfSymbol, source.c_str() + startOfSymbol, length); //sets the value 
             break;
+        default:
+            currentNode.Type = currentType;
+            char priority = getPriority(currentType, false); //assume led 
+            if (priority == 0) priority = getPriority(currentType, true); //default to nud if none is found
+            currentNode.priority = priority;
+            break;
+
     }
     tokenVector.push_back(currentNode);
 }
@@ -1375,7 +1801,25 @@ void tokenize(std::string& source, std::vector<bracket_information>& bracketVect
     type currentType = null;
     type lastType = null;
     int currentNum = 0;
-    for (size_t i = 0; i < source.length(); i++) {
+    
+    size_t i = 0;
+    auto generic_lex = [&startOfSymbol, &endOfSymbol, &currentType, &source, &bracketVector, &i](type inputType) {
+        interpretSymbol(startOfSymbol, endOfSymbol, currentType, source, bracketVector);
+        currentType = inputType;
+        startOfSymbol = i;
+        endOfSymbol = i + 1;
+    };
+    
+    size_t sourceLength = source.length();
+
+    auto peek_forwards = [sourceLength, &source, &i](char inputChar) {
+        bool cond = (i < sourceLength) and (source[++i] == inputChar);
+        i -= !cond; //decrement if false (branchless)
+        return cond;
+    };
+
+    for (; i < sourceLength; i++) {
+        
         switch (source[i]) {
         case ';':
             interpretSymbol(startOfSymbol, endOfSymbol, currentType, source, bracketVector);
@@ -1407,69 +1851,149 @@ void tokenize(std::string& source, std::vector<bracket_information>& bracketVect
                 currentType = floatLiteral;
                 endOfSymbol = i + 1;
             }
+            else {
+                generic_lex(structAccess);
+            }
             break;
         case '-': //add decrement operator with variables in the future
-            interpretSymbol(startOfSymbol, endOfSymbol, currentType, source, bracketVector);
-            currentType = subtraction;
-            startOfSymbol = i;
-            endOfSymbol = i + 1;
-            break;
+            if (peek_forwards('=')) {
+                generic_lex(plusEquals);
+            } else if (peek_forwards('-')) {
+                generic_lex(decrement);
+            } else if (peek_forwards('>')) {
+                generic_lex(structAccess);
+            } else {
+                generic_lex(subtraction);
+            }
         case '+': //add increment operator with variables in the future
-            interpretSymbol(startOfSymbol, endOfSymbol, currentType, source, bracketVector);
-            currentType = addition;
-            startOfSymbol = i;
-            endOfSymbol = i + 1;
-            break;
+            if (peek_forwards('=')) {
+                generic_lex(plusEquals);
+            }
+            else if (peek_forwards('+')) {
+                generic_lex(increment);
+            } else {
+                generic_lex(addition);
+            }
         case '*': //add struct operator with variables in the future
-            interpretSymbol(startOfSymbol, endOfSymbol, currentType, source, bracketVector);
-            currentType = multiplication;
-            startOfSymbol = i;
-            endOfSymbol = i + 1;
+            if (peek_forwards('=')) {
+                generic_lex(multEquals);
+            }
+            else {
+                generic_lex(multiplication); 
+            }
+            break;
+        case '/': //add comment support in the future
+            if (peek_forwards('=')) {
+                generic_lex(divEquals);
+            }
+            else {
+                generic_lex(division); 
+            }
+            break;
+        case '%': //add comment support in the future
+            if (peek_forwards('=')) {
+                generic_lex(modEquals);
+            }
+            else {
+                generic_lex(modulus);
+            }
+            break;
+        case '|':
+            if (peek_forwards('|')) {
+                generic_lex(Or);
+            } else if (peek_forwards('=')) {
+                generic_lex(orEquals);
+            } else {
+                generic_lex(bitwiseOr);
+            }
+            break;
+        case '^':
+            if (peek_forwards('=')) {
+                generic_lex(xorEquals);
+            } else {
+                generic_lex(xOr);
+            }
+            break;
+        case '&':
+            if (peek_forwards('&')) {
+                generic_lex(And);;
+            }
+            else if (peek_forwards('=')) {
+                generic_lex(andEquals);
+            }
+            else {
+                generic_lex(address);
+            }
+            break;
+        case '?':
+            generic_lex(conditional);
             break;
         case '(':
-            std::cout << ">>>>>>>>>>>OPEN PARENTHESIS FOUND<<<<<<<<<<<: " << i << std::endl;
-            
-            interpretSymbol(startOfSymbol, endOfSymbol, currentType, source, bracketVector);
-            currentType = openParenthesis;
-            startOfSymbol = i;
-            endOfSymbol = i + 1;
+            generic_lex(openParenthesis); 
             break;
         case ')':
-            interpretSymbol(startOfSymbol, endOfSymbol, currentType, source, bracketVector);
-            currentType = closeParenthesis;
-            startOfSymbol = i;
-            endOfSymbol = i + 1;
+            generic_lex(closeParenthesis);
             break;
         case '[':
-            interpretSymbol(startOfSymbol, endOfSymbol, currentType, source, bracketVector);
-            currentType = openBracket;
-            startOfSymbol = i;
-            endOfSymbol = i + 1;
+            generic_lex(openBracket); 
             break;
         case ']':
-            interpretSymbol(startOfSymbol, endOfSymbol, currentType, source, bracketVector);
-            currentType = closeBracket;
-            startOfSymbol = i;
-            endOfSymbol = i + 1;
+            generic_lex(closeBracket);
             break;
         case '{':
-            interpretSymbol(startOfSymbol, endOfSymbol, currentType, source, bracketVector);
-            currentType = openCurlyBracket;
-            startOfSymbol = i;
-            endOfSymbol = i + 1;
+            generic_lex(openCurlyBracket);
             break;
         case '}':
-            interpretSymbol(startOfSymbol, endOfSymbol, currentType, source, bracketVector);
-            currentType = closeCurlyBracket;
-            startOfSymbol = i;
-            endOfSymbol = i + 1;
+            generic_lex(closeCurlyBracket);
             break;
         case ',':
-            interpretSymbol(startOfSymbol, endOfSymbol, currentType, source, bracketVector);
-            currentType = comma;
-            startOfSymbol = i;
-            endOfSymbol = i + 1;
+            generic_lex(comma);
             break;
+        case '=':
+            if (peek_forwards('=')) {
+                generic_lex(equalsComp);
+            }
+            else {
+                generic_lex(equals);
+            }
+            break;
+        case '!':
+            if (peek_forwards('=')) {
+                generic_lex(notEquals);
+            }
+            else {
+                generic_lex(logicalNot);
+            }
+            break;
+        case '~':
+            generic_lex(bitwiseNot);
+            break;
+        case '<':
+            if (peek_forwards('<')) {
+                if (peek_forwards('=')) {
+                    generic_lex(shiftLeftEquals);
+                } else {
+                    generic_lex(shiftLeft);
+                }
+            } else if (peek_forwards('=')) {
+                generic_lex(lessThanEqual);
+            } else {
+                generic_lex(lessThan);
+            }
+        case '>':
+            if (peek_forwards('>')) {
+                if (peek_forwards('=')) {
+                    generic_lex(shiftRightEquals);
+                } else {
+                    generic_lex(shiftRight);
+                }
+            } else if (peek_forwards('=')) {
+                generic_lex(greaterThanEqual);
+            }
+            else {
+                generic_lex(greaterThan);
+            }
+        break;
         case '\n':
         case '\t':
         case '\v':
@@ -1484,16 +2008,13 @@ void tokenize(std::string& source, std::vector<bracket_information>& bracketVect
             break;
         default: //change this when variables are added
             if (currentType != variable) {
-                interpretSymbol(startOfSymbol, endOfSymbol, currentType, source, bracketVector);
-                startOfSymbol = i;
-                endOfSymbol = i + 1;
-                currentType = variable;
+                generic_lex(variable);
+                break;
             }
             else {
                 endOfSymbol = i + 1;
                 try {
                     type keyword = tokenKeywordTable.at(source.substr(startOfSymbol, endOfSymbol - startOfSymbol));
-                    std::cout << "interpretting" << std::endl;
                     interpretSymbol(startOfSymbol, endOfSymbol, keyword, source, bracketVector);
                     currentType = keyword;
                     startOfSymbol = i + 1;
@@ -1538,6 +2059,11 @@ int main() {
     tokenKeywordTable["double"] = doubleType;
     tokenKeywordTable["if"] = ifStatement;
     tokenKeywordTable["else"] = elseStatement;
+    tokenKeywordTable["sizeof"] = sizeOf;
+    tokenKeywordTable["alignof"] = alignOf;
+    tokenKeywordTable["and"] = And;
+    tokenKeywordTable["or"] = Or;
+    tokenKeywordTable["xor"] = xOr;
     tokenize(sourceString, bracketVector, tokenKeywordTable);
     orderBrackets(bracketVector);
     std::cout << "tokenVector.size() "  << tokenVector.size() << std::endl;
