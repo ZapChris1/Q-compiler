@@ -94,6 +94,14 @@ enum baseType {
     _enum
 };
 
+enum symbol_type {
+    Void,
+    Variable,
+    Function,
+    Type //int, structs, classes etc go here
+};
+
+
 enum type {
     unsignedIntLiteral,
     intLiteral,
@@ -424,6 +432,7 @@ struct symbol_data {
     symbol_data* underlyingType = nullptr; //the int in int* x, also used for structs and return type of function ptrs
     std::vector<baseType> typeObject; //contains info abt the type (doesnt include the identifier or underlying type)
     std::vector<AST_NODE*> arraySizes; //ptr to the part of the AST where the expression for the size(s) is (also used for function parameters by pointing to the parameter_definition)
+    symbol_type type = symbol_type::Void;
 };
 
 class scope_stack : public std::stack<std::unordered_map<std::string, symbol_data>*> {
@@ -441,7 +450,7 @@ class symbol_table_info { //struct for ease of use //all heap allocation is hand
 public:
     symbol_table_info() {
         createLocalScope();
-        declareIdentifier("int");
+        declareType("int");
         createLocalScope();
     }
     ~symbol_table_info() {
@@ -492,6 +501,24 @@ public:
             }
         }
         return &(*tableStack.top())[key];
+    }
+
+    symbol_data* declareType(std::string key) {
+        symbol_data* data = declareIdentifier(key);
+        data->type = symbol_type::Type;
+        return data;
+    }
+
+    symbol_data* declareFunction(std::string key) {
+        symbol_data* data = declareIdentifier(key);
+        data->type = symbol_type::Function;
+        return data;
+    }
+
+    symbol_data* declareVariable(std::string key) {
+        symbol_data* data = declareIdentifier(key);
+        data->type = symbol_type::Variable;
+        return data;
     }
 
     symbol_data* declareIdentifier(std::string key, symbol_data& newSymbol) { //allows for the use of a premade structure
@@ -706,7 +733,7 @@ AST_NODE* pratt_parse_node(AST_NODE* lastNode, size_t inputNodeIndex, bool nud, 
             else { //if rightPriority is greater //add a while loop to continue this recursion untill the right priority is no longer higher aka the right tree is complete
                 AST_NODE* selfNode = parse_token(inputNodeIndex, lastNode, nud);
                 AST_NODE* rightData = nullptr;
-                if (selfNode->endIndex < rightNodeIndex) rightData = pratt_parse_node(selfNode, rightNodeIndex, false);
+                if (selfNode and selfNode->endIndex < rightNodeIndex) rightData = pratt_parse_node(selfNode, rightNodeIndex, false);
                 else rightData = selfNode;
                 while (lastToken->priority < tokenVector[rightData->endIndex + 1].priority and rightData->endIndex + 1 < endIndex) { //if this still greater then continue building the rightNode tree
                     rightData = pratt_parse_node(rightData, rightData->endIndex + 1, false);
@@ -722,7 +749,7 @@ AST_NODE* pratt_parse_node(AST_NODE* lastNode, size_t inputNodeIndex, bool nud, 
             else {
                 AST_NODE* selfNode = parse_token(inputNodeIndex, lastNode, nud);
                 AST_NODE* rightData = nullptr;
-                if (selfNode->endIndex < rightNodeIndex) rightData = pratt_parse_node(selfNode, rightNodeIndex, false);
+                if (selfNode and selfNode->endIndex < rightNodeIndex) rightData = pratt_parse_node(selfNode, rightNodeIndex, false);
                 else rightData = selfNode;
                 return rightData;
             }
@@ -732,42 +759,32 @@ AST_NODE* pratt_parse_node(AST_NODE* lastNode, size_t inputNodeIndex, bool nud, 
     }
 }
 
-//parse expression and automatically child it to an input parentnode bracket
-AST_NODE* parse_expression(AST_NODE* inputNode) { //assuming index is '(' and endindex is ')'
-    AST_NODE* leftSide = nullptr;
-    if (inputNode->index + 1 < inputNode->endIndex) {
-        leftSide = pratt_parse_node(leftSide, inputNode->index + 1, true, inputNode->endIndex); //skip to the last parsed node    
-        if (leftSide != nullptr) {
-            for (size_t index = leftSide->endIndex + 1; index < inputNode->endIndex; index++) {
-                if (tokenVector[index].Type == eol) goto end;
-                AST_NODE* temp = pratt_parse_node(leftSide, index, true, inputNode->endIndex);
-                if (temp != nullptr) leftSide = temp; //skip to the last parsed node    
-                index = leftSide->endIndex;
-            }
-        }
-    }
-    end:
-    if (leftSide != nullptr) inputNode->branches.push_back(leftSide);
-    return leftSide; //returns top node of the expression
-}
+
 //parent node independent
 AST_NODE* parse_expression(size_t start, size_t end) { //assuming start is '(' and end is ')'
     AST_NODE* leftSide = nullptr;
     if (start + 1 < end) {
         leftSide = pratt_parse_node(leftSide, start + 1, true, end); //skip to the last parsed node    
-        assert(leftSide != nullptr);
         if (leftSide != nullptr) {
             for (size_t index = leftSide->endIndex + 1; index < end; index++) {
-                if (tokenVector[index].Type == eol) return leftSide;
+                if (tokenVector[index].Type == eol) {
+                    return leftSide;
+                }
 
-                AST_NODE* temp = pratt_parse_node(leftSide, index, true, end);
+                AST_NODE* temp = pratt_parse_node(leftSide, index, false, end);
                 if (temp != nullptr) leftSide = temp; //skip to the last parsed node    
-
                 index = leftSide->endIndex;
             }
         }
     }
     return leftSide; //returns top node of the expression //doesnt automatically add as a child
+}
+
+//parse expression and automatically child it to an input parentnode bracket
+AST_NODE* parse_expression(AST_NODE* inputNode) { //assuming index is '(' and endindex is ')'
+    AST_NODE* leftSide = parse_expression(inputNode->index, inputNode->endIndex);
+    if (leftSide != nullptr) inputNode->branches.push_back(leftSide);
+    return leftSide; //returns top node of the expression
 }
 
 void parse_arguments(AST_NODE* inputNode) { //assuming index is '(' and endindex is ')'
@@ -799,7 +816,7 @@ AST_NODE* parse_token(size_t inputIndex, AST_NODE* lastNode, bool nud) {
     std::cout << "parsing token" << inputIndex << std::endl;
     token* inputToken = &tokenVector[inputIndex];
     AST_NODE* inputNode = inputToken->node;
-    assert(!inputNode);
+    assert(inputNode == nullptr);
     if (inputNode) return inputNode; //if theres already a tree built no need to rebuild
     inputNode = new AST_NODE();
     inputNode->index = inputIndex;
@@ -816,6 +833,7 @@ AST_NODE* parse_token(size_t inputIndex, AST_NODE* lastNode, bool nud) {
     auto unary_postfix_operation = [inputNode, lastNode, &inputIndex]() { //uses left hand side ie token(symbol)
         lastNode->parent = inputNode;
         inputNode->branches.push_back(lastNode);
+        inputNode->endIndex = inputNode->index;
     };
 
     auto binary_operation = [nud, inputNode, lastNode, &inputIndex, unary_prefix_operation, unary_postfix_operation]() {
@@ -1070,6 +1088,7 @@ AST_NODE* parse_token(size_t inputIndex, AST_NODE* lastNode, bool nud) {
         std::cout << "err: unknown token: " << inputToken->Type << "at: " << inputIndex << std::endl;
         inputNode->endIndex = inputIndex;
     }
+    assert(inputNode != nullptr);
     return inputNode;
 }
 
@@ -1123,7 +1142,7 @@ AST_NODE* parse_declaration_specifier(size_t position, size_t endIndex) { //inde
 }
 
 void parse_declaration_identifiers(size_t endIndex, AST_NODE* declaration_node) { //inParameters refers to whether this declaration is parameter declaration
-    std::cout << "parsing declaration identifiers!: " << declaration_node->index << std::endl;
+    std::cout << "parsing declaration identifiers at!: " << declaration_node->index << std::endl;
     bool typeObjectReady = false;
     size_t startIndex = declaration_node->endIndex + 1;
     size_t start = startIndex;
@@ -1153,6 +1172,7 @@ void parse_declaration_identifiers(size_t endIndex, AST_NODE* declaration_node) 
                 position = arraySizeExpression->endIndex;
                 recursive_parse(arraySizeExpression); //add logic for getting the size and etc of the array (for multi dim arrays)
                 currentSymbol.arraySizes.push_back(arraySizeExpression);
+                identifierNode->endIndex = arraySizeExpression->endIndex;
             } else if (tokenVector[position].Type == closeParenthesis) {
                 parse_prefix_modifiers(identifierNode, prefixPosition, *(size_t*)tokenVector[position].value, currentSymbol);
                 prefixPosition = position;
@@ -1231,7 +1251,7 @@ void parse_declaration_identifiers(size_t endIndex, AST_NODE* declaration_node) 
                         }
                     }
                     else {
-                        symbol_data* definitonData = symbolTableInfo->declareIdentifier(identifierNode->key);
+                        symbol_data* definitonData = symbolTableInfo->declareFunction(identifierNode->key);
                         definitonData->underlyingType = underlyingTypeData;
                         definitonData->arraySizes.push_back(functionParameters);
                     }
@@ -1249,12 +1269,14 @@ void parse_declaration_identifiers(size_t endIndex, AST_NODE* declaration_node) 
             else if (tokenVector[position].Type == equals or tokenVector[position].Type == comma) {
                 parse_prefix_modifiers(identifierNode, prefixPosition, start, currentSymbol);
                 currentSymbol.underlyingType = symbolTableInfo->getIdentifier(declaration_node->key);
-                symbolTableInfo->declareIdentifier(identifierNode->key, currentSymbol); 
+                currentSymbol.type = symbol_type::Variable;
+                symbolTableInfo->declareIdentifier(identifierNode->key, currentSymbol);
                 return position;
             }
         }
         parse_prefix_modifiers(identifierNode, prefixPosition, start, currentSymbol);
         currentSymbol.underlyingType = symbolTableInfo->getIdentifier(declaration_node->key);
+        currentSymbol.type = symbol_type::Variable;
         symbolTableInfo->declareIdentifier(identifierNode->key, currentSymbol);
         return (size_t)0;
     };
@@ -1292,6 +1314,7 @@ void parse_declaration_identifiers(size_t endIndex, AST_NODE* declaration_node) 
             identifierNode->parent = declaration_node;
             identifierNode->key = std::string((char*)identifierToken->value, identifierToken->size);
             identifierNode->index = position;
+            identifierNode->endIndex = position;
             size_t newPosition = parse_postfix_modifiers(identifierNode, start);
             std::cout << identifierNode->key << " : " << start << " : " << newPosition << std::endl;
             
@@ -1300,6 +1323,7 @@ void parse_declaration_identifiers(size_t endIndex, AST_NODE* declaration_node) 
             }
             
             if (newPosition == 0) {
+                declaration_node->endIndex = identifierNode->endIndex;
                 goto end;
             }
             else {
@@ -1336,8 +1360,6 @@ end:
     }
 }
 
-
-
 size_t parse_parameter_declaration_identifier(size_t endIndex, AST_NODE* declarationSpecifierNode) { //declaration_node->endIndex should be the end of the underlying type
         
         auto parse_prefix_modifiers = [](AST_NODE* identifierNode, size_t inputPosition, size_t start, symbol_data& currentSymbol) {
@@ -1349,7 +1371,7 @@ size_t parse_parameter_declaration_identifier(size_t endIndex, AST_NODE* declara
         auto parse_postfix_modifiers = [&parse_prefix_modifiers, &declarationSpecifierNode, &endIndex](AST_NODE* identifierNode, size_t start) {
             size_t identifierPosition = identifierNode->index;
             size_t prefixPosition = identifierPosition;
-            symbol_data currentSymbol = *symbolTableInfo->declareIdentifier(identifierNode->key);
+            symbol_data currentSymbol = *symbolTableInfo->declareVariable(identifierNode->key);
             for (size_t position = identifierPosition + 1; position < endIndex; position++) { //postfix operators
                 if (tokenVector[position].Type == openBracket) {
                     currentSymbol.typeObject.push_back(_array); //add logic for getting the size and etc of the array (for multi dim arrays)
@@ -1412,7 +1434,7 @@ void parse_line(AST_NODE* parentNode, size_t firstIndex, size_t end) { //end is 
     };
 
     auto parse_as_expression = [&parentNode, firstIndex, end]() {
-        AST_NODE* topNode = parse_expression(firstIndex - 1, end);
+        AST_NODE* topNode = parse_expression(firstIndex, end);
         topNode->parent = parentNode;
         parentNode->branches.push_back(topNode);
     };
@@ -1445,7 +1467,7 @@ void parse_line(AST_NODE* parentNode, size_t firstIndex, size_t end) { //end is 
             else {
                 symbol_data* data = symbolTableInfo->getIdentifier(key);
                 if (data) {
-                    if (data->typeObject.size() > 0) {
+                    if (data->type != symbol_type::Type) {
                         parse_as_expression();
                     }
                     else {
@@ -1556,7 +1578,7 @@ void parse_block(AST_NODE* inputNode) { //lastStatement is the first index check
             std::cout << "currentToken size: " << key << std::endl;
             if (data) {
                 std::cout << "parsing!:" << key << ": " << std::endl;
-                if (data->typeObject.size() == 0) { //if the variable is a type
+                if (data->type == symbol_type::Type) { //if the variable is a type
                     AST_NODE* declarationSpecifierNode = parse_declaration_specifier(i, inputNode->endIndex);
                     declarationSpecifierNode->parent = inputNode;
                     inputNode->branches.push_back(declarationSpecifierNode);
@@ -1798,28 +1820,53 @@ void tokenize(std::string& source, std::vector<bracket_information>& bracketVect
     size_t startOfLine = 0; //not sure if this will matter (possible removal)
     size_t startOfSymbol = 0;
     size_t endOfSymbol = 0;
-    type currentType = null;
-    type lastType = null;
+    type currentType = type::null;
+    type lastType = type::null;
     int currentNum = 0;
     
     size_t i = 0;
+    size_t start = 0;
     auto generic_lex = [&startOfSymbol, &endOfSymbol, &currentType, &source, &bracketVector, &i](type inputType) {
         interpretSymbol(startOfSymbol, endOfSymbol, currentType, source, bracketVector);
         currentType = inputType;
         startOfSymbol = i;
         endOfSymbol = i + 1;
     };
-    
+
+    auto specific_lex = [&startOfSymbol, &endOfSymbol, &currentType, &source, &bracketVector, &i, &start](type inputType) {
+        static size_t callCount = 0;
+        callCount++;
+        interpretSymbol(startOfSymbol, endOfSymbol, currentType, source, bracketVector);
+        std::cout << "specific lexxed: " << source.substr(startOfSymbol, endOfSymbol - startOfSymbol) << " at " << startOfSymbol << " with len " << endOfSymbol - startOfSymbol << std::endl;
+        startOfSymbol = start;
+        endOfSymbol = i + 1;
+        currentType = inputType;
+    };
+
     size_t sourceLength = source.length();
 
     auto peek_forwards = [sourceLength, &source, &i](char inputChar) {
-        bool cond = (i < sourceLength) and (source[++i] == inputChar);
-        i -= !cond; //decrement if false (branchless)
-        return cond;
+        if (i < sourceLength) { //i is incremented before use if the previous cond in the and is true
+            if (source[i + 1] == inputChar) {
+                i++;
+                return true;
+            }
+        }
+        return false;
+    };
+
+    auto lex_complex_token = [&startOfSymbol, &endOfSymbol, &currentType, &source, &bracketVector, &i, &start, peek_forwards, specific_lex](std::unordered_map<char, type> possibleExtensions, type def) {
+        for (auto it = possibleExtensions.begin(); it != possibleExtensions.end(); ++it) {
+            if (peek_forwards(it->first)) {
+                specific_lex(it->second);
+                return;
+            }
+        }
+        specific_lex(def);
     };
 
     for (; i < sourceLength; i++) {
-        
+        start = i;
         switch (source[i]) {
         case ';':
             interpretSymbol(startOfSymbol, endOfSymbol, currentType, source, bracketVector);
@@ -1857,73 +1904,61 @@ void tokenize(std::string& source, std::vector<bracket_information>& bracketVect
             break;
         case '-': //add decrement operator with variables in the future
             if (peek_forwards('=')) {
-                generic_lex(plusEquals);
+                specific_lex(plusEquals);
             } else if (peek_forwards('-')) {
-                generic_lex(decrement);
+                specific_lex(decrement);
             } else if (peek_forwards('>')) {
-                generic_lex(structAccess);
+                specific_lex(structAccess);
             } else {
-                generic_lex(subtraction);
+                specific_lex(subtraction);
             }
+            break;
         case '+': //add increment operator with variables in the future
-            if (peek_forwards('=')) {
-                generic_lex(plusEquals);
-            }
-            else if (peek_forwards('+')) {
-                generic_lex(increment);
-            } else {
-                generic_lex(addition);
-            }
+        {
+            lex_complex_token(
+                {
+                    {'+', type::increment},
+                    {'=', type::plusEquals},
+                }, type::addition);
+            break;
+        }
         case '*': //add struct operator with variables in the future
-            if (peek_forwards('=')) {
-                generic_lex(multEquals);
-            }
-            else {
-                generic_lex(multiplication); 
-            }
+            lex_complex_token(
+                {
+                    {'=', type::multEquals},
+                }, type::multiplication);
             break;
         case '/': //add comment support in the future
-            if (peek_forwards('=')) {
-                generic_lex(divEquals);
-            }
-            else {
-                generic_lex(division); 
-            }
+            lex_complex_token(
+                {
+                    {'=', type::divEquals},
+                }, type::division);
             break;
         case '%': //add comment support in the future
-            if (peek_forwards('=')) {
-                generic_lex(modEquals);
-            }
-            else {
-                generic_lex(modulus);
-            }
+            lex_complex_token(
+                {
+                    {'=', type::modEquals},
+                }, type::modulus);
             break;
         case '|':
-            if (peek_forwards('|')) {
-                generic_lex(Or);
-            } else if (peek_forwards('=')) {
-                generic_lex(orEquals);
-            } else {
-                generic_lex(bitwiseOr);
-            }
+            lex_complex_token(
+                {
+                    {'|', type::Or},
+                    {'=', type::orEquals},
+                }, type::bitwiseOr);
             break;
         case '^':
-            if (peek_forwards('=')) {
-                generic_lex(xorEquals);
-            } else {
-                generic_lex(xOr);
-            }
+            lex_complex_token(
+                {
+                    {'=', type::xorEquals},
+                }, type::xOr);
             break;
         case '&':
-            if (peek_forwards('&')) {
-                generic_lex(And);;
-            }
-            else if (peek_forwards('=')) {
-                generic_lex(andEquals);
-            }
-            else {
-                generic_lex(address);
-            }
+            lex_complex_token(
+                {
+                    {'&', type::And},
+                    {'=', type::andEquals},
+                }, type::address);
             break;
         case '?':
             generic_lex(conditional);
@@ -1950,20 +1985,16 @@ void tokenize(std::string& source, std::vector<bracket_information>& bracketVect
             generic_lex(comma);
             break;
         case '=':
-            if (peek_forwards('=')) {
-                generic_lex(equalsComp);
-            }
-            else {
-                generic_lex(equals);
-            }
+            lex_complex_token(
+                {
+                    {'=', type::equalsComp},
+                }, type::equals);
             break;
         case '!':
-            if (peek_forwards('=')) {
-                generic_lex(notEquals);
-            }
-            else {
-                generic_lex(logicalNot);
-            }
+            lex_complex_token(
+                {
+                    {'=', type::notEquals},
+                }, type::logicalNot);
             break;
         case '~':
             generic_lex(bitwiseNot);
@@ -1971,40 +2002,42 @@ void tokenize(std::string& source, std::vector<bracket_information>& bracketVect
         case '<':
             if (peek_forwards('<')) {
                 if (peek_forwards('=')) {
-                    generic_lex(shiftLeftEquals);
+                    specific_lex(shiftLeftEquals);
                 } else {
-                    generic_lex(shiftLeft);
+                    specific_lex(shiftLeft);
                 }
             } else if (peek_forwards('=')) {
-                generic_lex(lessThanEqual);
+                specific_lex(lessThanEqual);
             } else {
-                generic_lex(lessThan);
+                specific_lex(lessThan);
             }
+            break;
         case '>':
             if (peek_forwards('>')) {
                 if (peek_forwards('=')) {
-                    generic_lex(shiftRightEquals);
+                    specific_lex(shiftRightEquals);
                 } else {
-                    generic_lex(shiftRight);
+                    specific_lex(shiftRight);
                 }
             } else if (peek_forwards('=')) {
-                generic_lex(greaterThanEqual);
+                specific_lex(greaterThanEqual);
             }
             else {
-                generic_lex(greaterThan);
+                specific_lex(greaterThan);
             }
-        break;
+            break;
         case '\n':
         case '\t':
         case '\v':
         case '\r':
         case '\f':
         case ' ':
-            if (currentType != null) {
+            if (currentType != type::null) {
                 interpretSymbol(startOfSymbol, endOfSymbol, currentType, source, bracketVector);
-                currentType = null;
+                currentType = type::null;
             }
             startOfSymbol = i + 1;
+            endOfSymbol = i + 1;
             break;
         default: //change this when variables are added
             if (currentType != variable) {
@@ -2026,7 +2059,7 @@ void tokenize(std::string& source, std::vector<bracket_information>& bracketVect
             break;
         }
     }
-    if (currentType != null) interpretSymbol(startOfSymbol, endOfSymbol, currentType, source, bracketVector);
+    if (currentType != type::null) interpretSymbol(startOfSymbol, endOfSymbol, currentType, source, bracketVector);
 }
 
 void fillString(std::string& returnString, std::ifstream& inputFile) {
@@ -2067,7 +2100,7 @@ int main() {
     tokenize(sourceString, bracketVector, tokenKeywordTable);
     orderBrackets(bracketVector);
     std::cout << "tokenVector.size() "  << tokenVector.size() << std::endl;
-    
+
     AST_NODE* translation_unit = new AST_NODE;
     translation_unit->index = -1; //this is just set to -1 so that parse_block starts at 0
     translation_unit->endIndex = tokenVector.size();
