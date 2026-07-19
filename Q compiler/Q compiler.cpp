@@ -98,6 +98,7 @@ enum symbol_type {
     Void,
     Variable,
     Function,
+    Label,
     Type //int, structs, classes etc go here
 };
 
@@ -260,6 +261,7 @@ char getPriority(type inputType, bool nud) {
             return BINDING_POWER_LOGICAL_AND;
         case type::Or:
             return BINDING_POWER_LOGICAL_OR;
+        case type::colon:
         case type::conditional:
             return BINDING_POWER_CONDITIONAL;
         case type::equals:
@@ -339,6 +341,8 @@ enum syntax_type {
     parameter_declaration,
     type_specifier,
     derefrence_operation,
+    conditional_operation,
+    conditional_operator_false_case,
     if_statement,
     else_statement,
     condition,
@@ -417,7 +421,7 @@ struct token {
     AST_NODE* node = nullptr;
     type Type = type::null;
     size_t size = 0; //this is the size of the data at value (allows for value to be variable length)
-    char priority = -1;
+    char priority = 0;
 };
 
 struct bracket_information {
@@ -451,7 +455,8 @@ public:
     symbol_table_info() {
         createLocalScope();
         declareType("int");
-        createLocalScope();
+        declareVariable("a"); declareVariable("b"); declareVariable("c"); //for debugging
+        createFunctionScope();
     }
     ~symbol_table_info() {
         symbolTableVector.clear();
@@ -461,10 +466,8 @@ public:
     }
     //hardcode in the types for int, float, char, etc
     symbol_data* getIdentifier(std::string key) { //assumes it exists 
-        std::cout << "<<<<<<<<<<<<<>>>>>>>>>>>>>" << key << std::endl;
         for (size_t i = 1; i <= tableStack.size(); i++) {
             std::unordered_map<std::string, symbol_data>* currentTable = tableStack.c[tableStack.size() - i];
-            std::cout << "<><> " << tableStack.size() - i << " : " << (currentTable == &symbolTableVector[tableStack.size() - i]) << std::endl;
             if (currentTable->find(key) != currentTable->end()) {
                 std::cout << i << std::endl;
                 return &(tableStack.c[tableStack.size() - i]->at(key));
@@ -576,7 +579,7 @@ public:
     }
 
     void exitScope() {
-        if (tableStack.top() == labelTableStack.top()) {
+        if (!labelTableStack.empty() and tableStack.top() == labelTableStack.top()) {
             labelTableStack.pop();
         }
         tableStack.pop();
@@ -658,6 +661,7 @@ void printNode(AST_NODE* node) {
     std::cout << "\n" << std::endl;
     for (unsigned int i = 0; i < lineCounter; i++) std::cout << "\t";
     if (node->endIndex != 0) std::cout << "syntax_type: " << node->type << " children: " << node->branches.size() << " index: " << node->index << " end index: " << node->endIndex << std::endl;
+    
     else std::cout << "syntax_type: " << node->type << " children: " << node->branches.size() << " index: " << node->index << std::endl;
 }
 
@@ -722,7 +726,7 @@ AST_NODE* pratt_parse_node(AST_NODE* lastNode, size_t inputNodeIndex, bool nud, 
     static size_t endIndex = 0;
     if (end) endIndex = end;
     size_t rightNodeIndex = inputNodeIndex + 1;
-    if (rightNodeIndex < end) {
+    if (rightNodeIndex < endIndex) {
         token* rightToken = &tokenVector[rightNodeIndex];
         char rightPriority = getPriority(rightToken->Type, false); //we are assuming the rightToken to be led, this assumption can be corrected later
         if (lastNode != nullptr) {
@@ -767,7 +771,7 @@ AST_NODE* parse_expression(size_t start, size_t end) { //assuming start is '(' a
         leftSide = pratt_parse_node(leftSide, start + 1, true, end); //skip to the last parsed node    
         if (leftSide != nullptr) {
             for (size_t index = leftSide->endIndex + 1; index < end; index++) {
-                if (tokenVector[index].Type == eol) {
+                if (tokenVector[index].Type == eol) { //stops parsing at eol
                     return leftSide;
                 }
 
@@ -839,8 +843,8 @@ AST_NODE* parse_token(size_t inputIndex, AST_NODE* lastNode, bool nud) {
     auto binary_operation = [nud, inputNode, lastNode, &inputIndex, unary_prefix_operation, unary_postfix_operation]() {
         assert(not nud);
         if (nud) std::cout << "err attempting a binary operation on a nud token:" << tokenVector[inputIndex].Type << "  at: " << inputIndex << std::endl;
-        unary_prefix_operation();
         unary_postfix_operation();
+        unary_prefix_operation();
     };
     
     switch (inputToken->Type) {
@@ -956,10 +960,23 @@ AST_NODE* parse_token(size_t inputIndex, AST_NODE* lastNode, bool nud) {
         }
         else std::cout << "attempted to parse nud operation as led at" << inputIndex << std::endl;
         break;
-    case conditional: //add conditional support in the future
-        std::cout << "conditionals are not yet supported!" << std::endl;
-        break;
-
+    case conditional: //add earlier termination in the future when semantic analysis is improved/implemented
+        if (nud) std::cout << "err attempted to parse ? as nud at: " << inputNode->index << std::endl;
+        else {
+            inputNode->type = syntax_type::conditional_operation;
+            binary_operation(); //[0] is the condition, [1] is the true case
+            
+            AST_NODE* falseCase = pratt_parse_node(inputNode, inputNode->endIndex + 1, true); //[2] is the false case
+            
+            if (falseCase == nullptr or falseCase->type != syntax_type::conditional_operator_false_case) std::cout << "err parsing the false case for conditional expected : at: " << inputNode->endIndex + 1 << std::endl;
+        }
+        break; 
+    case colon:
+        if (nud) std::cout << "err attempted to parse ? as nud at: " << inputNode->index << std::endl;
+        else {
+            inputNode->type = syntax_type::conditional_operator_false_case;
+            unary_prefix_operation();
+        }
     case addition:
         if (nud) {
             inputNode->type = syntax_type::unary_positive;
@@ -1079,8 +1096,8 @@ AST_NODE* parse_token(size_t inputIndex, AST_NODE* lastNode, bool nud) {
         break;
     }
     case eol:
-        if (nud) {
-            std::cout << "err: attempting to parse ; at: " << inputIndex << std::endl;
+        if (!nud) {
+            std::cout << "err: attempting to parse ; or : as led at: " << inputIndex << std::endl;
         }
         delete inputNode;
         return nullptr;
@@ -1425,7 +1442,7 @@ size_t parse_parameter_declaration_identifier(size_t endIndex, AST_NODE* declara
     }
 
 void parse_line(AST_NODE* parentNode, size_t firstIndex, size_t end) { //end is for bounds checking
-
+    
     auto parse_as_declaration = [&parentNode, firstIndex, end]() {
         AST_NODE* declarationSpecifierNode = parse_declaration_specifier(firstIndex, end);
         declarationSpecifierNode->parent = parentNode;
@@ -1434,7 +1451,7 @@ void parse_line(AST_NODE* parentNode, size_t firstIndex, size_t end) { //end is 
     };
 
     auto parse_as_expression = [&parentNode, firstIndex, end]() {
-        AST_NODE* topNode = parse_expression(firstIndex, end);
+        AST_NODE* topNode = parse_expression(firstIndex - 1, end);
         topNode->parent = parentNode;
         parentNode->branches.push_back(topNode);
     };
@@ -1444,24 +1461,25 @@ void parse_line(AST_NODE* parentNode, size_t firstIndex, size_t end) { //end is 
         case variable: {//fix identifier vs variable later
             token* secondToken = &tokenVector[firstIndex + 1];
             std::string key((char*)firstToken->value, firstToken->size);
-            if (secondToken->Type == colon) {
+            if (secondToken->Type == type::colon) {
                 symbol_data* data = symbolTableInfo->declareLabel(key);
                 
                 AST_NODE* labelNode = new AST_NODE;
                 labelNode->index = firstIndex;
                 labelNode->key = key;
-                labelNode->endIndex = firstIndex + 1;
+                labelNode->endIndex = parentNode->endIndex; //for bounds check tighten later
                 labelNode->type = syntax_type::goto_destination;
                 labelNode->parent = parentNode;
                 parentNode->branches.push_back(labelNode);
 
                 AST_NODE* destinationNode = new AST_NODE;
-                destinationNode->index = labelNode->endIndex + 1;
+                destinationNode->index = labelNode->index + 2;
                 destinationNode->parent = labelNode;
                 destinationNode->type = syntax_type::grammar_statement;
                 labelNode->branches.push_back(destinationNode);
-                recursive_parse(destinationNode);
+                recursive_parse(destinationNode); //tightened post bounds check
 
+                labelNode->endIndex = destinationNode->endIndex;
                 data->destinationNode = labelNode;
             }
             else {
@@ -1477,23 +1495,24 @@ void parse_line(AST_NODE* parentNode, size_t firstIndex, size_t end) { //end is 
                     std::cout << "attempted to parse unknown identifier:" << key << ": " << std::endl;
                 }
             }
+            break;
         }
-        case booleanType:
-        case charType:
-        case intType:
-        case floatType:
-        case doubleType:
-        case shortType:
-        case longType:
-        case unsignedType:
-        case signedType: //include all the type qualifiers etc here
+        case type::booleanType:
+        case type::charType:
+        case type::intType:
+        case type::floatType:
+        case type::doubleType:
+        case type::shortType:
+        case type::longType:
+        case type::unsignedType:
+        case type::signedType: //include all the type qualifiers etc here
             parse_as_declaration();
             break;
         case type::defaultStatement:
         case type::caseStatement:
             //parse seperately
             break;
-        case gotoStatement:
+        case type::gotoStatement:
             //parse as goto
             break;
         default:
@@ -1502,35 +1521,44 @@ void parse_line(AST_NODE* parentNode, size_t firstIndex, size_t end) { //end is 
     }
 }
 
-void parse_block(AST_NODE* inputNode) { //lastStatement is the first index checked
+void parse_block(AST_NODE* inputNode) { //inputNode->index is ( //endIndex is )
     std::cout << "parsing block!" << std::endl;
-
-    size_t lastStatement = inputNode->index + 1;
     
-    auto parse_control_flow_statement = [&lastStatement, &inputNode](const syntax_type statementType, size_t& i) {
+    auto parse_control_flow_statement = [&inputNode](const syntax_type statementType, size_t& i) {
         AST_NODE* newNode = new AST_NODE();
         newNode->type = statementType;
         newNode->parent = inputNode;
         newNode->index = i;
         inputNode->branches.push_back(newNode);
         recursive_parse(newNode);
-        lastStatement = i;
         i = newNode->endIndex;
-        };
+    };
 
-    for (size_t i = lastStatement; i < inputNode->endIndex; i++) { //endIndex is the }
+    auto parse_declaration = [&inputNode](size_t& i) {
+        AST_NODE* declarationSpecifierNode = parse_declaration_specifier(i, inputNode->endIndex);
+        declarationSpecifierNode->parent = inputNode;
+        inputNode->branches.push_back(declarationSpecifierNode);
+        parse_declaration_identifiers(inputNode->endIndex, declarationSpecifierNode);
+        if (declarationSpecifierNode->parent == inputNode) { //if it was a variable skip to the end of the declaration
+            i = declarationSpecifierNode->endIndex;
+            if (i + 1 > tokenVector.size() and tokenVector[i + 1].Type == eol) {
+                i++;
+            }
+        } else {
+            i = declarationSpecifierNode->branches[0]->endIndex; //if it was a function skip to the end of the function
+        }
+    };
+
+    for (size_t i = inputNode->index + 1; i < inputNode->endIndex; i++) { //endIndex is the )
         token* currentToken = &tokenVector[i];
         std::cout << "parsing token: " << i << "  with type: " << currentToken->Type << std::endl;
         switch (currentToken->Type) {
+        case closeParenthesis:
+        case closeBracket:
+        case closeCurlyBracket:
         case eol:
-            if (i - lastStatement < 2) { //empty
-                lastStatement = i;
-            }
-            else { //pure expression, use parse_expression()
-                parse_line(inputNode, lastStatement, i);
-                lastStatement = i + 1;
-            }
-            break;
+        case colon:
+            break; //ignore these tokens because they mean nothing alone
         case ifStatement:
             parse_control_flow_statement(syntax_type::if_statement, i);
             break;
@@ -1546,65 +1574,92 @@ void parse_block(AST_NODE* inputNode) { //lastStatement is the first index check
         case caseStatement:
             parse_control_flow_statement(syntax_type::case_statement, i);
             break;
-        case colon:
-            if (i > lastStatement) {
-                token* identifierToken = &tokenVector[i - 1];
+        case variable: {
+            std::string key((char*)currentToken->value, currentToken->size);
+            std::cout << "currentToken size: " << key << std::endl;
 
-                std::string key((char*)identifierToken->value, identifierToken->size);
-                symbol_data data = *symbolTableInfo->getLabel(key);
+            if (i + 1 < inputNode->endIndex and tokenVector[i + 1].Type == type::colon) { //label
+                token* secondToken = &tokenVector[i + 1];
+
+                symbol_data data;
+                data.name = key;
+                data.type = symbol_type::Label;
 
                 AST_NODE* labelNode = new AST_NODE;
-                labelNode->index = i - 1;
+                labelNode->index = i;
                 labelNode->key = key;
-                labelNode->endIndex = i;
+                labelNode->endIndex = inputNode->endIndex; //for bounds check tighten later
                 labelNode->type = syntax_type::goto_destination;
                 labelNode->parent = inputNode;
                 inputNode->branches.push_back(labelNode);
 
                 AST_NODE* destinationNode = new AST_NODE;
-                destinationNode->index = labelNode->endIndex + 1;
+                destinationNode->index = labelNode->index + 2;
                 destinationNode->parent = labelNode;
                 destinationNode->type = syntax_type::grammar_statement;
                 labelNode->branches.push_back(destinationNode);
                 recursive_parse(destinationNode);
+                labelNode->endIndex = destinationNode->endIndex; //tightened post bounds check
 
                 data.destinationNode = labelNode;
-                i = destinationNode->endIndex;
-            }
-        case variable: {
-            std::string key((char*)currentToken->value, currentToken->size);
-            std::cout << "currentToken size: " << key << std::endl;
-            symbol_data* data = symbolTableInfo->getIdentifier(key);
-            std::cout << "currentToken size: " << key << std::endl;
-            if (data) {
-                std::cout << "parsing!:" << key << ": " << std::endl;
-                if (data->type == symbol_type::Type) { //if the variable is a type
-                    AST_NODE* declarationSpecifierNode = parse_declaration_specifier(i, inputNode->endIndex);
-                    declarationSpecifierNode->parent = inputNode;
-                    inputNode->branches.push_back(declarationSpecifierNode);
-                    parse_declaration_identifiers(inputNode->endIndex, declarationSpecifierNode);
-                    if (declarationSpecifierNode->parent == inputNode) { //if it was a variable skip to the end of the declaration
-                        i = declarationSpecifierNode->endIndex;
-                        if (i + 1 > tokenVector.size() and tokenVector[i + 1].Type == eol) {
-                            i++;
-                        }
+                i = labelNode->endIndex;
+                symbolTableInfo->declareIdentifier(key, data);
+                break;
+            } else {
+                symbol_data* data = symbolTableInfo->getIdentifier(key);
+                std::cout << "currentToken name: " << key << std::endl;
+
+                if (data) {
+                    std::cout << "parsing!:" << key << ": " << std::endl;
+                    if (data->type == symbol_type::Type) { //if the variable is a type aka declaration
+                        parse_declaration(i);
+                        break;
                     }
-                    else {
-                        i = declarationSpecifierNode->branches[0]->endIndex; //if it was a function skip to the end of the function
-                    }
-                    lastStatement = i + 1;
+                    else goto expression_case;
                 }
-            } else { //first time seeing data, must be a declaration
-                std::cout << "attempted to parse unknown identifier:" << key << ": " << std::endl;
+                else {
+                    std::cout << "err attempted to parse unknown identifier:" << key << ": at: " << i << std::endl;
+                    assert(false);
+                    break;
+                }
             }
+            //if neither a type nor label then treat it as an expression
+            goto expression_case;
+            }
+        case type::booleanType:
+        case type::charType:
+        case type::intType:
+        case type::floatType:
+        case type::doubleType:
+        case type::shortType:
+        case type::longType:
+        case type::unsignedType:
+        case type::signedType: //include all the type qualifiers etc here
+            parse_declaration(i);
             break;
+        default:
+        expression_case: {
+            AST_NODE* expressionNode = parse_expression(i, inputNode->endIndex);
+            if (expressionNode != nullptr) {
+                inputNode->branches.push_back(expressionNode);
+                expressionNode->parent = inputNode;
+                i = expressionNode->endIndex;
+                break;
             }
+            else {
+                std::cout << "empty expression at: " << i << std::endl;
+            }
+        }
         }
     }
 }
 
 void recursive_parse(AST_NODE* inputNode) {
     size_t position = inputNode->index;
+    if (position >= tokenVector.size()) {
+        std::cout << "err attempted to parse outside of range at: " << position << std::endl;
+        assert(false);
+    }
     switch (inputNode->type) {
     case parameter_declaration:
             for (size_t i = position + 1; i < inputNode->endIndex; i++) {
@@ -1635,10 +1690,11 @@ void recursive_parse(AST_NODE* inputNode) {
             AST_NODE* bodyNode = new AST_NODE;
             bodyNode->index = conditionNode->endIndex + 1;
             bodyNode->parent = inputNode;
-            bodyNode->type = syntax_type::grammar_statement;
+            bodyNode->type = syntax_type::grammar_statement; //single line vs scope block is handled here
             inputNode->branches.push_back(bodyNode);
             recursive_parse(bodyNode);
 
+            inputNode->endIndex = bodyNode->endIndex;
             symbolTableInfo->switchStack.push(inputNode);
         }
             break;
@@ -1655,12 +1711,11 @@ void recursive_parse(AST_NODE* inputNode) {
             AST_NODE* bodyNode = new AST_NODE;
             bodyNode->index = conditionNode->endIndex + 1;
             bodyNode->parent = inputNode;
-            bodyNode->type = syntax_type::grammar_statement;
+            bodyNode->type = syntax_type::grammar_statement; //single line vs scope block is handled here
             inputNode->branches.push_back(bodyNode);
             recursive_parse(bodyNode);
 
-            token* elseToken = &tokenVector[bodyNode->endIndex + 1];
-            if (elseToken->Type == elseStatement) {
+            if (bodyNode->endIndex + 1 < tokenVector.size() and tokenVector[bodyNode->endIndex + 1].Type == elseStatement) {
                 AST_NODE* elseNode = new AST_NODE;
                 elseNode->index = bodyNode->endIndex + 1;
                 elseNode->type = syntax_type::else_statement;
@@ -1676,7 +1731,7 @@ void recursive_parse(AST_NODE* inputNode) {
             break;
         case grammar_statement: {
             token* currentToken = &tokenVector[position];
-            if (currentToken->Type == openBracket) {
+            if (currentToken->Type == openCurlyBracket) {
                 inputNode->endIndex = *(size_t*)currentToken->value;
                 inputNode->type = syntax_type::scope_block;
                 inputNode->value = symbolTableInfo->createLocalScope();
@@ -1981,6 +2036,9 @@ void tokenize(std::string& source, std::vector<bracket_information>& bracketVect
         case '}':
             generic_lex(closeCurlyBracket);
             break;
+        case ':':
+            generic_lex(colon);
+            break;
         case ',':
             generic_lex(comma);
             break;
@@ -2092,6 +2150,8 @@ int main() {
     tokenKeywordTable["double"] = doubleType;
     tokenKeywordTable["if"] = ifStatement;
     tokenKeywordTable["else"] = elseStatement;
+    tokenKeywordTable["switch"] = switchStatement;
+    tokenKeywordTable["case"] = caseStatement;
     tokenKeywordTable["sizeof"] = sizeOf;
     tokenKeywordTable["alignof"] = alignOf;
     tokenKeywordTable["and"] = And;
