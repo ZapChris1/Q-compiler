@@ -848,7 +848,7 @@ AST_NODE* parse_token(size_t inputIndex, AST_NODE* lastNode, bool nud) {
     };
     
     switch (inputToken->Type) {
-    case multiplication:
+    case type::multiplication:
         if (nud) {
             inputNode->type = syntax_type::derefrence_operation;
             unary_prefix_operation();
@@ -858,55 +858,55 @@ AST_NODE* parse_token(size_t inputIndex, AST_NODE* lastNode, bool nud) {
             binary_operation();
         }
         break;
-    case division:
+    case type::division:
         inputNode->type = syntax_type::division_operation;
         binary_operation();
         break;
-    case structAccess:
+    case type::structAccess:
         inputNode->type = syntax_type::member_access;
         binary_operation();
         break;
-    case structPointerAccess:
+    case type::structPointerAccess:
         inputNode->type = syntax_type::pointer_member_access;
         binary_operation();
         break;
-    case modulus:
+    case type::modulus:
         inputNode->type = syntax_type::modulus_operation;
         binary_operation();
         break;
-    case shiftLeft:
+    case type::shiftLeft:
         inputNode->type = syntax_type::shift_left_operation;
         binary_operation();
         break;
-    case shiftRight:
+    case type::shiftRight:
         inputNode->type = syntax_type::shift_right_operation;
         binary_operation();
         break;
-    case greaterThan:
+    case type::greaterThan:
         inputNode->type = syntax_type::greater_than_comparison;
         binary_operation();
         break;
-    case lessThan:
+    case type::lessThan:
         inputNode->type = syntax_type::less_than_comparison;
         binary_operation();
         break;
-    case greaterThanEqual:
+    case type::greaterThanEqual:
         inputNode->type = syntax_type::greater_than_equal_comparison;
         binary_operation();
         break;
-    case equalsComp:
+    case type::equalsComp:
         inputNode->type = syntax_type::equal_comparison;
         binary_operation();
         break;
-    case notEquals:
+    case type::notEquals:
         inputNode->type = syntax_type::not_equal_comparison;
         binary_operation();
         break;
-    case lessThanEqual:
+    case type::lessThanEqual:
         inputNode->type = syntax_type::less_than_equal_comparison;
         binary_operation();
         break;
-    case address:
+    case type::address:
         if (nud) {
             inputNode->type = syntax_type::address_operation;
             unary_prefix_operation();
@@ -916,68 +916,73 @@ AST_NODE* parse_token(size_t inputIndex, AST_NODE* lastNode, bool nud) {
             binary_operation();
         }
         break;
-    case bitwiseNot:
+    case type::bitwiseNot:
         if (nud) {
             inputNode->type = syntax_type::bitwise_not_operation;
             unary_prefix_operation();
         }
         else std::cout << "attempted to parse nud operation as led at" << inputIndex << std::endl;
         break;
-    case logicalNot:
+    case type::logicalNot:
         if (nud) {
             inputNode->type = syntax_type::logical_not_operation;
             unary_prefix_operation();
         }
         else std::cout << "attempted to parse nud operation as led at" << inputIndex << std::endl;
         break;
-    case xOr:
+    case type::xOr:
         inputNode->type = syntax_type::bitwise_xor_operation;
         binary_operation();
         break;
-    case bitwiseOr:
+    case type::bitwiseOr:
         inputNode->type = syntax_type::logical_or_operation;
         binary_operation();
         break;
-    case Or:
+    case type::Or:
         inputNode->type = syntax_type::logical_or_operation;
         binary_operation();
         break;
-    case And:
+    case type::And:
         inputNode->type = syntax_type::logical_and_operation;
         binary_operation();
         break;
-    case sizeOf: //add support for sizeof in the future
+    case type::sizeOf: //add support for sizeof in the future
         if (nud) {
             inputNode->type = syntax_type::size_of_operation;
             unary_prefix_operation();
         }
         else std::cout << "attempted to parse nud operation as led at" << inputIndex << std::endl;
         break;
-    case alignOf: //add support for alignof in the future
+    case type::alignOf: //add support for alignof in the future
         if (nud) {
             inputNode->type = syntax_type::align_of_operation;
             unary_prefix_operation();
         }
         else std::cout << "attempted to parse nud operation as led at" << inputIndex << std::endl;
         break;
-    case conditional: //add earlier termination in the future when semantic analysis is improved/implemented
+    case type::conditional: //add earlier termination in the future when semantic analysis is improved/implemented
         if (nud) std::cout << "err attempted to parse ? as nud at: " << inputNode->index << std::endl;
         else {
             inputNode->type = syntax_type::conditional_operation;
             binary_operation(); //[0] is the condition, [1] is the true case
-            
             AST_NODE* falseCase = pratt_parse_node(inputNode, inputNode->endIndex + 1, true); //[2] is the false case
             
             if (falseCase == nullptr or falseCase->type != syntax_type::conditional_operator_false_case) std::cout << "err parsing the false case for conditional expected : at: " << inputNode->endIndex + 1 << std::endl;
+            else {
+                inputNode->branches.push_back(falseCase);
+                falseCase->parent = inputNode;
+                inputNode->endIndex = falseCase->endIndex;
+            }
         }
         break; 
-    case colon:
+    case type::colon:
         if (nud) std::cout << "err attempted to parse ? as nud at: " << inputNode->index << std::endl;
         else {
             inputNode->type = syntax_type::conditional_operator_false_case;
             unary_prefix_operation();
         }
-    case addition:
+        break;
+    case type::addition:
         if (nud) {
             inputNode->type = syntax_type::unary_positive;
             unary_prefix_operation();
@@ -987,7 +992,7 @@ AST_NODE* parse_token(size_t inputIndex, AST_NODE* lastNode, bool nud) {
             binary_operation();
         }
         break;
-    case subtraction:
+    case type::subtraction:
         if (nud) {
             inputNode->type = syntax_type::unary_negation;
             unary_prefix_operation();
@@ -996,7 +1001,7 @@ AST_NODE* parse_token(size_t inputIndex, AST_NODE* lastNode, bool nud) {
             binary_operation();
         }
         break;
-    case increment:
+    case type::increment:
         if (nud) {
             inputNode->type = syntax_type::prefix_increment;
             unary_prefix_operation();
@@ -1006,7 +1011,7 @@ AST_NODE* parse_token(size_t inputIndex, AST_NODE* lastNode, bool nud) {
             unary_postfix_operation();
         }
         break;
-    case decrement:
+    case type::decrement:
         if (nud) {
             inputNode->type = syntax_type::prefix_decrement;
             unary_prefix_operation();
@@ -1016,60 +1021,60 @@ AST_NODE* parse_token(size_t inputIndex, AST_NODE* lastNode, bool nud) {
             unary_postfix_operation();
         }
         break;
-    case equals:
+    case type::equals:
         inputNode->type = syntax_type::assignment;
         binary_operation();
         break;
-    case plusEquals:
+    case type::plusEquals:
         inputNode->type = syntax_type::addition_assignment;
         binary_operation();
         break;
-    case minusEquals:
+    case type::minusEquals:
         inputNode->type = syntax_type::subtraction_assignment;
         binary_operation();
         break;
-    case multEquals:
+    case type::multEquals:
         inputNode->type = syntax_type::multiplication_assignment;
         binary_operation();
         break;
-    case divEquals:
+    case type::divEquals:
         inputNode->type = syntax_type::division_assignment;
         binary_operation();
         break;
-    case modEquals:
+    case type::modEquals:
         inputNode->type = syntax_type::modulus_assignment;
         binary_operation();
         break;
-    case shiftLeftEquals:
+    case type::shiftLeftEquals:
         inputNode->type = syntax_type::shift_left_assignment;
         binary_operation();
         break;
-    case shiftRightEquals:
+    case type::shiftRightEquals:
         inputNode->type = syntax_type::shift_right_assignment;
         binary_operation();
         break;
-    case andEquals: //bitwise and not logical and
+    case type::andEquals: //bitwise and not logical and
         inputNode->type = syntax_type::and_assignment;
         binary_operation();
         break;
-    case xorEquals:
+    case type::xorEquals:
         inputNode->type = syntax_type::xor_assignment;
         binary_operation();
         break;
-    case orEquals: //bitwise and not logical or
+    case type::orEquals: //bitwise and not logical or
         inputNode->type = syntax_type::or_assignment;
         binary_operation();
         break;
-    case comma:
+    case type::comma:
         if (!nud) std::cout << "err comma cannot be led at: " << inputNode->index << std::endl;
         unary_postfix_operation();
         inputNode->type = syntax_type::comma_seperator;
         break;
-    case openParenthesis:
+    case type::openParenthesis:
         inputNode->endIndex = *(size_t*)((*inputToken).value);
         parse_expression(inputNode);
         break;
-    case variable: {
+    case type::variable: {
         if (inputNode->index + 1 < tokenVector.size() and tokenVector[inputNode->index + 1].Type == openParenthesis) { //if it is a function
             inputNode->type = syntax_type::function_call;
             std::string key = std::string((char*)inputToken->value, inputToken->size);
@@ -1095,7 +1100,7 @@ AST_NODE* parse_token(size_t inputIndex, AST_NODE* lastNode, bool nud) {
         }
         break;
     }
-    case eol:
+    case type::eol:
         if (!nud) {
             std::cout << "err: attempting to parse ; or : as led at: " << inputIndex << std::endl;
         }
@@ -1639,7 +1644,7 @@ void parse_block(AST_NODE* inputNode) { //inputNode->index is ( //endIndex is )
             break;
         default:
         expression_case: {
-            AST_NODE* expressionNode = parse_expression(i, inputNode->endIndex);
+            AST_NODE* expressionNode = parse_expression(i - 1, inputNode->endIndex);
             if (expressionNode != nullptr) {
                 inputNode->branches.push_back(expressionNode);
                 expressionNode->parent = inputNode;
