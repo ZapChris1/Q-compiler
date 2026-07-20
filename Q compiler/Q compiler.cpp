@@ -332,6 +332,8 @@ inline baseType tokenToBaseType(type input) { //for getting base types in declar
 enum syntax_type {
     null_type,
     translation_unit,
+    parenthesized_expression,
+    parenthesized_type,
     function_call,
     function_arguments,
     function_declaration,
@@ -948,6 +950,7 @@ AST_NODE* parse_token(size_t inputIndex, AST_NODE* lastNode, bool nud) {
         break;
     case type::sizeOf: //add support for sizeof in the future
         if (nud) {
+            
             inputNode->type = syntax_type::size_of_operation;
             unary_prefix_operation();
         }
@@ -1072,7 +1075,7 @@ AST_NODE* parse_token(size_t inputIndex, AST_NODE* lastNode, bool nud) {
         break;
     case type::openParenthesis:
         inputNode->endIndex = *(size_t*)((*inputToken).value);
-        parse_expression(inputNode);
+        parse_parenthesis_in_expression(inputNode);
         break;
     case type::variable: {
         if (inputNode->index + 1 < tokenVector.size() and tokenVector[inputNode->index + 1].Type == openParenthesis) { //if it is a function
@@ -1523,6 +1526,74 @@ void parse_line(AST_NODE* parentNode, size_t firstIndex, size_t end) { //end is 
         default:
             parse_as_expression();
             break;
+    }
+}
+
+void parse_parenthesis_in_expression(AST_NODE* parenthesisNode) {
+    size_t index = parenthesisNode->index + 1;
+    if (index >= parenthesisNode->endIndex) {
+        std::cout << "err expected content in () at: " << parenthesisNode->index << std::endl;
+        assert(index < parenthesisNode->endIndex);
+        return;
+    }
+
+    auto parse_as_expression = [&parenthesisNode]() {
+        parenthesisNode->type = syntax_type::parenthesized_expression;
+        AST_NODE* expressionNode = parse_expression(parenthesisNode);
+        if (expressionNode == nullptr) {
+            std::cout << "err expected expression at: " << parenthesisNode->index + 1 << std::endl;
+            assert(expressionNode != nullptr);
+        }
+    };
+
+    auto parse_as_type = [&parenthesisNode, index]() {
+        parenthesisNode->type = syntax_type::parenthesized_type;
+        AST_NODE* typeNode = parse_declaration_specifier(index, parenthesisNode->endIndex);
+        typeNode->parent = parenthesisNode;
+        parenthesisNode->branches.push_back(typeNode);
+    };
+
+    token* currentToken = &tokenVector[parenthesisNode->index + 1];
+    
+    switch (currentToken->Type) {
+    case variable: {
+        std::string key((char*)currentToken->value, currentToken->size);
+        symbol_data* data = symbolTableInfo->getIdentifier(key);
+
+        if (data) {
+            std::cout << "parsing!:" << key << ": " << std::endl;
+            if (data->type == symbol_type::Type) { //if the variable is a type aka declaration
+                parse_as_type();
+                break;
+            }
+            else {
+                parse_as_expression();
+                break;
+            }
+        }
+        else {
+            std::cout << "err attempted to parse unknown identifier:" << key << ": at: " << i << std::endl;
+            assert(false);
+            break;
+        }
+        //if neither a type nor label then treat it as an expression
+        parse_as_expression();
+        break;
+    }
+    case type::booleanType:
+    case type::charType:
+    case type::intType:
+    case type::floatType:
+    case type::doubleType:
+    case type::shortType:
+    case type::longType:
+    case type::unsignedType:
+    case type::signedType: //include all the type qualifiers etc here
+        parse_as_type();
+        break;
+    default:
+        parse_as_expression();
+        break;
     }
 }
 
