@@ -28,6 +28,7 @@ char constexpr BINDING_POWER_DEREFRENCE_POINTER = 14; //* //nud
 char constexpr BINDING_POWER_AMPERSAND = 14; //& //nud
 char constexpr BINDING_POWER_SIZEOF = 14; //sizeof //nud
 char constexpr BINDING_POWER_ALIGNOF = 14; //alignof //nud
+char constexpr BINDING_POWER_TYPE_CAST = 14; //(type)x, priority is reset for the ( token after being identified as a typecast
 
 char constexpr BINDING_POWER_MULTIPLICATION = 13; //* //led
 char constexpr BINDING_POWER_DIVISION = 13; // / //led
@@ -222,6 +223,10 @@ char getPriority(type inputType, bool nud) {
     }
     else {
         switch (inputType) { //led
+        case type::openParenthesis: //function call
+            return BINDING_POWER_PARENTHESIS;
+        case type::openBracket: //indexing
+            return BINDING_POWER_BRACKET;
         case type::increment:
             return BINDING_POWER_INCREMENT_POSTFIX;
         case type::decrement:
@@ -261,7 +266,6 @@ char getPriority(type inputType, bool nud) {
             return BINDING_POWER_LOGICAL_AND;
         case type::Or:
             return BINDING_POWER_LOGICAL_OR;
-        case type::colon:
         case type::conditional:
             return BINDING_POWER_CONDITIONAL;
         case type::equals:
@@ -333,7 +337,11 @@ enum syntax_type {
     null_type,
     translation_unit,
     parenthesized_expression,
+    type_cast,
     parenthesized_type,
+    compound_literal,
+    compound_literal_parameters,
+    index_operation,
     function_call,
     function_arguments,
     function_declaration,
@@ -373,6 +381,7 @@ enum syntax_type {
     bitwise_and_operation,
     bitwise_not_operation,
     bitwise_xor_operation,
+    bitwise_or_operation,
     logical_or_operation,
     logical_and_operation,
     logical_not_operation,
@@ -403,6 +412,91 @@ enum syntax_type {
     single_line_with_scope,
     identifier
 };
+
+std::string syntax_type_to_string(syntax_type type)
+{
+    switch (type)
+    {
+    case null_type: return "null_type";
+    case translation_unit: return "translation_unit";
+    case parenthesized_expression: return "parenthesized_expression";
+    case type_cast: return "type_cast";
+    case parenthesized_type: return "parenthesized_type";
+    case compound_literal: return "compound_literal";
+    case compound_literal_parameters: return "compound_literal_parameters";
+    case index_operation: return "index_operation";
+    case function_call: return "function_call";
+    case function_arguments: return "function_arguments";
+    case function_declaration: return "function_declaration";
+    case function_definition: return "function_definition";
+    case declaration_specifier: return "declaration_specifier";
+    case parameter_list: return "parameter_list";
+    case parameter_declaration: return "parameter_declaration";
+    case type_specifier: return "type_specifier";
+    case derefrence_operation: return "derefrence_operation";
+    case conditional_operation: return "conditional_operation";
+    case conditional_operator_false_case: return "conditional_operator_false_case";
+    case if_statement: return "if_statement";
+    case else_statement: return "else_statement";
+    case condition: return "condition";
+    case switch_statement: return "switch_statement";
+    case case_statement: return "case_statement";
+    case goto_statement: return "goto_statement";
+    case goto_destination: return "goto_destination";
+    case break_statement: return "break_statement";
+    case declarator: return "declarator";
+    case multiplication_operation: return "multiplication_operation";
+    case division_operation: return "division_operation";
+    case addition_operation: return "addition_operation";
+    case subtraction_operation: return "subtraction_operation";
+    case member_access: return "member_access";
+    case pointer_member_access: return "pointer_member_access";
+    case modulus_operation: return "modulus_operation";
+    case shift_left_operation: return "shift_left_operation";
+    case shift_right_operation: return "shift_right_operation";
+    case greater_than_comparison: return "greater_than_comparison";
+    case less_than_comparison: return "less_than_comparison";
+    case equal_comparison: return "equal_comparison";
+    case not_equal_comparison: return "not_equal_comparison";
+    case less_than_equal_comparison: return "less_than_equal_comparison";
+    case greater_than_equal_comparison: return "greater_than_equal_comparison";
+    case address_operation: return "address_operation";
+    case bitwise_and_operation: return "bitwise_and_operation";
+    case bitwise_not_operation: return "bitwise_not_operation";
+    case bitwise_xor_operation: return "bitwise_xor_operation";
+    case bitwise_or_operation: return "bitwise_or_operation";
+    case logical_or_operation: return "logical_or_operation";
+    case logical_and_operation: return "logical_and_operation";
+    case logical_not_operation: return "logical_not_operation";
+    case size_of_operation: return "size_of_operation";
+    case align_of_operation: return "align_of_operation";
+    case unary_positive: return "unary_positive";
+    case unary_negation: return "unary_negation";
+    case prefix_increment: return "prefix_increment";
+    case postfix_increment: return "postfix_increment";
+    case prefix_decrement: return "prefix_decrement";
+    case postfix_decrement: return "postfix_decrement";
+    case assignment: return "assignment";
+    case addition_assignment: return "addition_assignment";
+    case subtraction_assignment: return "subtraction_assignment";
+    case multiplication_assignment: return "multiplication_assignment";
+    case division_assignment: return "division_assignment";
+    case modulus_assignment: return "modulus_assignment";
+    case shift_left_assignment: return "shift_left_assignment";
+    case shift_right_assignment: return "shift_right_assignment";
+    case and_assignment: return "and_assignment";
+    case xor_assignment: return "xor_assignment";
+    case or_assignment: return "or_assignment";
+    case comma_seperator: return "comma_seperator";
+    case array_size_specifier: return "array_size_specifier";
+    case grammar_statement: return "grammar_statement";
+    case scope_block: return "scope_block";
+    case single_line: return "single_line";
+    case single_line_with_scope: return "single_line_with_scope";
+    case identifier: return "identifier";
+    default: return "unknown";
+    }
+}
 
 struct AST_NODE { //live on the heap(ptrs to them are in the branches vector) (will have to be freed during deconstruction of AST)
     AST_NODE* parent = nullptr;
@@ -457,7 +551,9 @@ public:
     symbol_table_info() {
         createLocalScope();
         declareType("int");
-        declareVariable("a"); declareVariable("b"); declareVariable("c"); //for debugging
+        declareVariable("a"); declareVariable("b"); declareVariable("c");
+        declareVariable("d"); declareVariable("e"); declareVariable("f");
+        declareVariable("g"); declareVariable("h"); declareVariable("i");
         createFunctionScope();
     }
     ~symbol_table_info() {
@@ -662,9 +758,12 @@ size_t lineCounter = 0;
 void printNode(AST_NODE* node) {
     std::cout << "\n" << std::endl;
     for (unsigned int i = 0; i < lineCounter; i++) std::cout << "\t";
-    if (node->endIndex != 0) std::cout << "syntax_type: " << node->type << " children: " << node->branches.size() << " index: " << node->index << " end index: " << node->endIndex << std::endl;
     
-    else std::cout << "syntax_type: " << node->type << " children: " << node->branches.size() << " index: " << node->index << std::endl;
+    if (!(node->key.empty())) std::cout << "key: " << node->key;
+    std::cout << " syntax_type: " << syntax_type_to_string(node->type) << " children: " << node->branches.size() << " index: " << node->index;
+    if (node->endIndex != 0) std::cout << " : "  << node->endIndex;
+    
+    std::cout << std::endl;
 }
 
 void printAST(AST_NODE* currentNode) {
@@ -691,17 +790,8 @@ void orderBrackets(std::vector<bracket_information>& bracketVector) {
                     bracketsBetween--;
                 } else {
                     token* openBracketToken = &tokenVector[bracketVector[0].index];
-                    AST_NODE* openBracketNode = new AST_NODE;
-                    openBracketNode->value = openBracketToken;
-                    openBracketToken->node = openBracketNode;
 
                     token* closeBracketToken = &tokenVector[bracketVector[closeBracketIndex].index];
-                    AST_NODE* closeBracketNode = new AST_NODE;
-                    closeBracketNode->value = closeBracketToken;
-                    closeBracketToken->node = closeBracketNode;
-
-                    closeBracketToken->parent = openBracketNode;
-                    openBracketNode->branches.push_back(closeBracketNode);
 
                     setValue(*closeBracketToken, 0, bracketVector[0].index);
                     setValue(*openBracketToken, 0, bracketVector[closeBracketIndex].index);
@@ -722,22 +812,31 @@ void orderBrackets(std::vector<bracket_information>& bracketVector) {
     }
 }
 
-AST_NODE* parse_token(size_t inputIndex, AST_NODE* lastNode, bool nud); //protoype
+AST_NODE* parse_token(size_t inputIndex, AST_NODE* lastNode, bool nud, size_t end); //protoype
 
 AST_NODE* pratt_parse_node(AST_NODE* lastNode, size_t inputNodeIndex, bool nud, size_t end = 0) {
     static size_t endIndex = 0;
     if (end) endIndex = end;
+    token* selfToken = &tokenVector[inputNodeIndex];
+
+
     size_t rightNodeIndex = inputNodeIndex + 1;
+    switch (selfToken->Type) {
+    case type::openParenthesis:
+    case type::openBracket:
+    case type::openCurlyBracket:
+        rightNodeIndex = *(size_t*)selfToken->value + 1;
+    }
     if (rightNodeIndex < endIndex) {
         token* rightToken = &tokenVector[rightNodeIndex];
         char rightPriority = getPriority(rightToken->Type, false); //we are assuming the rightToken to be led, this assumption can be corrected later
         if (lastNode != nullptr) {
             token* lastToken = &tokenVector[lastNode->index];
             if (lastToken->priority >= rightPriority) {
-                return parse_token(inputNodeIndex, lastNode, false); //return parsed self
+                return parse_token(inputNodeIndex, lastNode, nud, endIndex); //return parsed self
             }
             else { //if rightPriority is greater //add a while loop to continue this recursion untill the right priority is no longer higher aka the right tree is complete
-                AST_NODE* selfNode = parse_token(inputNodeIndex, lastNode, nud);
+                AST_NODE* selfNode = parse_token(inputNodeIndex, lastNode, nud, endIndex);
                 AST_NODE* rightData = nullptr;
                 if (selfNode and selfNode->endIndex < rightNodeIndex) rightData = pratt_parse_node(selfNode, rightNodeIndex, false);
                 else rightData = selfNode;
@@ -748,12 +847,11 @@ AST_NODE* pratt_parse_node(AST_NODE* lastNode, size_t inputNodeIndex, bool nud, 
             }
         }
         else {
-            token* selfToken = &tokenVector[inputNodeIndex];
             if (selfToken->priority >= rightPriority) {
-                return parse_token(inputNodeIndex, lastNode, nud); //return parsed self
+                return parse_token(inputNodeIndex, lastNode, nud, endIndex); //return parsed self
             }
             else {
-                AST_NODE* selfNode = parse_token(inputNodeIndex, lastNode, nud);
+                AST_NODE* selfNode = parse_token(inputNodeIndex, lastNode, nud, endIndex);
                 AST_NODE* rightData = nullptr;
                 if (selfNode and selfNode->endIndex < rightNodeIndex) rightData = pratt_parse_node(selfNode, rightNodeIndex, false);
                 else rightData = selfNode;
@@ -761,7 +859,7 @@ AST_NODE* pratt_parse_node(AST_NODE* lastNode, size_t inputNodeIndex, bool nud, 
             }
         }
     } else {
-        return parse_token(inputNodeIndex, lastNode, nud); //return parsed self
+        return parse_token(inputNodeIndex, lastNode, nud, end); //return parsed self
     }
 }
 
@@ -769,14 +867,15 @@ AST_NODE* pratt_parse_node(AST_NODE* lastNode, size_t inputNodeIndex, bool nud, 
 //parent node independent
 AST_NODE* parse_expression(size_t start, size_t end) { //assuming start is '(' and end is ')'
     AST_NODE* leftSide = nullptr;
+    size_t index = start + 1;
     if (start + 1 < end) {
         leftSide = pratt_parse_node(leftSide, start + 1, true, end); //skip to the last parsed node    
+        assert(leftSide);
         if (leftSide != nullptr) {
-            for (size_t index = leftSide->endIndex + 1; index < end; index++) {
-                if (tokenVector[index].Type == eol) { //stops parsing at eol
+            for (index = leftSide->endIndex + 1; index < end; index++) {
+                if (tokenVector[index].Type == eol or tokenVector[index].Type == colon) { //stops parsing at eol
                     return leftSide;
                 }
-
                 AST_NODE* temp = pratt_parse_node(leftSide, index, false, end);
                 if (temp != nullptr) leftSide = temp; //skip to the last parsed node    
                 index = leftSide->endIndex;
@@ -792,6 +891,76 @@ AST_NODE* parse_expression(AST_NODE* inputNode) { //assuming index is '(' and en
     if (leftSide != nullptr) inputNode->branches.push_back(leftSide);
     return leftSide; //returns top node of the expression
 }
+
+AST_NODE* parse_declaration_specifier(size_t position, size_t endIndex);
+void parse_parenthesis_in_expression(AST_NODE* parenthesisNode) {
+    size_t index = parenthesisNode->index + 1;
+    if (index >= parenthesisNode->endIndex) {
+        std::cout << "err expected content in () at: " << parenthesisNode->index << std::endl;
+        assert(index < parenthesisNode->endIndex);
+        return;
+    }
+
+    auto parse_as_expression = [&parenthesisNode]() {
+        parenthesisNode->type = syntax_type::parenthesized_expression;
+        AST_NODE* expressionNode = parse_expression(parenthesisNode);
+        if (expressionNode == nullptr) {
+            std::cout << "err expected expression at: " << parenthesisNode->index + 1 << std::endl;
+            assert(expressionNode != nullptr);
+        }
+        };
+
+    auto parse_as_type = [&parenthesisNode, index]() {
+        parenthesisNode->type = syntax_type::parenthesized_type;
+        AST_NODE* typeNode = parse_declaration_specifier(index, parenthesisNode->endIndex);
+        typeNode->parent = parenthesisNode;
+        parenthesisNode->branches.push_back(typeNode);
+        };
+
+    token* currentToken = &tokenVector[parenthesisNode->index + 1];
+
+    switch (currentToken->Type) {
+    case variable: {
+        std::string key((char*)currentToken->value, currentToken->size);
+        symbol_data* data = symbolTableInfo->getIdentifier(key);
+
+        assert(data != nullptr);
+        if (data != nullptr) {
+            std::cout << "parsing!:" << key << ": " << std::endl;
+            if (data->type == symbol_type::Type) { //if the variable is a type aka declaration
+                parse_as_type();
+                break;
+            }
+            else {
+                parse_as_expression();
+                break;
+            }
+        }
+        else {
+            std::cout << "err attempted to parse unknown identifier:" << key << ": at: " << parenthesisNode->index + 1 << std::endl;
+            break;
+        }
+        //if neither a type nor label then treat it as an expression
+        parse_as_expression();
+        break;
+    }
+    case type::booleanType:
+    case type::charType:
+    case type::intType:
+    case type::floatType:
+    case type::doubleType:
+    case type::shortType:
+    case type::longType:
+    case type::unsignedType:
+    case type::signedType: //include all the type qualifiers etc here
+        parse_as_type();
+        break;
+    default:
+        parse_as_expression();
+        break;
+    }
+}
+
 
 void parse_arguments(AST_NODE* inputNode) { //assuming index is '(' and endindex is ')'
     size_t lastCommaIndex = inputNode->index + 1;
@@ -818,7 +987,7 @@ void parse_arguments(AST_NODE* inputNode) { //assuming index is '(' and endindex
     }
 }
 
-AST_NODE* parse_token(size_t inputIndex, AST_NODE* lastNode, bool nud) {
+AST_NODE* parse_token(size_t inputIndex, AST_NODE* lastNode, bool nud, size_t end) {
     std::cout << "parsing token" << inputIndex << std::endl;
     token* inputToken = &tokenVector[inputIndex];
     AST_NODE* inputNode = inputToken->node;
@@ -937,7 +1106,7 @@ AST_NODE* parse_token(size_t inputIndex, AST_NODE* lastNode, bool nud) {
         binary_operation();
         break;
     case type::bitwiseOr:
-        inputNode->type = syntax_type::logical_or_operation;
+        inputNode->type = syntax_type::bitwise_or_operation;
         binary_operation();
         break;
     case type::Or:
@@ -950,7 +1119,6 @@ AST_NODE* parse_token(size_t inputIndex, AST_NODE* lastNode, bool nud) {
         break;
     case type::sizeOf: //add support for sizeof in the future
         if (nud) {
-            
             inputNode->type = syntax_type::size_of_operation;
             unary_prefix_operation();
         }
@@ -964,27 +1132,30 @@ AST_NODE* parse_token(size_t inputIndex, AST_NODE* lastNode, bool nud) {
         else std::cout << "attempted to parse nud operation as led at" << inputIndex << std::endl;
         break;
     case type::conditional: //add earlier termination in the future when semantic analysis is improved/implemented
+        assert(!nud);
         if (nud) std::cout << "err attempted to parse ? as nud at: " << inputNode->index << std::endl;
         else {
             inputNode->type = syntax_type::conditional_operation;
-            binary_operation(); //[0] is the condition, [1] is the true case
-            AST_NODE* falseCase = pratt_parse_node(inputNode, inputNode->endIndex + 1, true); //[2] is the false case
-            
-            if (falseCase == nullptr or falseCase->type != syntax_type::conditional_operator_false_case) std::cout << "err parsing the false case for conditional expected : at: " << inputNode->endIndex + 1 << std::endl;
+            unary_postfix_operation();
+            AST_NODE* trueCase = parse_expression(inputNode->index, end);
+            trueCase->parent = inputNode;
+            inputNode->branches.push_back(trueCase);
+            inputNode->endIndex = trueCase->endIndex;
+
+            token* colonToken = nullptr;
+            if (inputNode->endIndex + 1 < tokenVector.size()) {
+                colonToken = &tokenVector[inputNode->endIndex + 1];
+            }
+
+            if (colonToken == nullptr or colonToken->Type != type::colon) std::cout << "err parsing the false case for conditional expected : at: " << inputNode->endIndex + 1 << std::endl;
             else {
-                inputNode->branches.push_back(falseCase);
-                falseCase->parent = inputNode;
-                inputNode->endIndex = falseCase->endIndex;
+                inputToken->priority = BINDING_POWER_CONDITIONAL;
+                colonToken->priority = BINDING_POWER_CONDITIONAL;
+                inputIndex = inputNode->endIndex + 1;
+                unary_prefix_operation();
             }
         }
         break; 
-    case type::colon:
-        if (nud) std::cout << "err attempted to parse ? as nud at: " << inputNode->index << std::endl;
-        else {
-            inputNode->type = syntax_type::conditional_operator_false_case;
-            unary_prefix_operation();
-        }
-        break;
     case type::addition:
         if (nud) {
             inputNode->type = syntax_type::unary_positive;
@@ -1069,41 +1240,65 @@ AST_NODE* parse_token(size_t inputIndex, AST_NODE* lastNode, bool nud) {
         binary_operation();
         break;
     case type::comma:
-        if (!nud) std::cout << "err comma cannot be led at: " << inputNode->index << std::endl;
-        unary_postfix_operation();
+        if (nud) std::cout << "err comma cannot be nud at: " << inputNode->index << std::endl;
+        binary_operation();
         inputNode->type = syntax_type::comma_seperator;
         break;
     case type::openParenthesis:
         inputNode->endIndex = *(size_t*)((*inputToken).value);
         parse_parenthesis_in_expression(inputNode);
-        break;
-    case type::variable: {
-        if (inputNode->index + 1 < tokenVector.size() and tokenVector[inputNode->index + 1].Type == openParenthesis) { //if it is a function
-            inputNode->type = syntax_type::function_call;
-            std::string key = std::string((char*)inputToken->value, inputToken->size);
-            inputNode->key = key; //get key for symbol table
 
-            token* nextToken = &tokenVector[inputNode->index + 1];
-            size_t start = inputNode->index + 1;
-            size_t end = *(size_t*)nextToken->value;
-            inputNode->endIndex = end;
-
-            AST_NODE* functionArgs = new AST_NODE;
-            functionArgs->index = start;
-            functionArgs->endIndex = end;
-            functionArgs->type = syntax_type::function_arguments;
-            parse_arguments(functionArgs);
-            functionArgs->parent = inputNode;
-            inputNode->branches.push_back(functionArgs);
-        } else {
-            inputNode->type = syntax_type::identifier;
-            std::string key = std::string((char*)inputToken->value, inputToken->size);
-            inputNode->key = key; //get key for symbol table
-            inputNode->endIndex = inputIndex;
+        if (inputNode->type == syntax_type::parenthesized_type) {
+            inputNode->type = syntax_type::type_cast;
+            if (nud) {
+                inputIndex = inputNode->endIndex;
+                unary_prefix_operation();
+                if (inputNode->branches[0]->type == syntax_type::compound_literal_parameters) {
+                    inputNode->type = syntax_type::compound_literal;
+                }
+            }
+            else {
+                std::cout << "err passing a compile-time type into a function call at: " << inputNode->index << std::endl;
+                unary_postfix_operation();
+            }
+        }
+        else {
+            if (!nud) {
+                inputNode->type = syntax_type::function_call; //implement semantic check in the future
+                unary_postfix_operation();
+                inputNode->endIndex = *(size_t*)((*inputToken).value);
+            }
+            //if its nud then its just for grouping so nothing else required
         }
         break;
+    case type::openBracket:
+        if (!nud) {
+            inputNode->endIndex = *(size_t*)((*inputToken).value);
+            inputNode->type = syntax_type::index_operation;
+            parse_expression(inputNode);
+            unary_postfix_operation();
+            inputNode->endIndex = *(size_t*)((*inputToken).value);
+        }
+        else std::cout << "err attempted to parse [ as nud at: " << inputIndex << std::endl;
+        break;
+    case type::openCurlyBracket:
+        if (nud) {
+            inputNode->endIndex = *(size_t*)((*inputToken).value);
+            inputNode->type = syntax_type::compound_literal_parameters;
+            parse_expression(inputNode);
+        }
+        else std::cout << "err attempted to parse { as led at: " << inputIndex << std::endl;
+        break;
+    case type::variable: {
+        inputNode->type = syntax_type::identifier;
+        std::string key = std::string((char*)inputToken->value, inputToken->size);
+        inputNode->key = key; //get key for symbol table
+        inputNode->endIndex = inputIndex;
+        break;
     }
+    case type::colon:
     case type::eol:
+        assert(nud);
         if (!nud) {
             std::cout << "err: attempting to parse ; or : as led at: " << inputIndex << std::endl;
         }
@@ -1526,74 +1721,6 @@ void parse_line(AST_NODE* parentNode, size_t firstIndex, size_t end) { //end is 
         default:
             parse_as_expression();
             break;
-    }
-}
-
-void parse_parenthesis_in_expression(AST_NODE* parenthesisNode) {
-    size_t index = parenthesisNode->index + 1;
-    if (index >= parenthesisNode->endIndex) {
-        std::cout << "err expected content in () at: " << parenthesisNode->index << std::endl;
-        assert(index < parenthesisNode->endIndex);
-        return;
-    }
-
-    auto parse_as_expression = [&parenthesisNode]() {
-        parenthesisNode->type = syntax_type::parenthesized_expression;
-        AST_NODE* expressionNode = parse_expression(parenthesisNode);
-        if (expressionNode == nullptr) {
-            std::cout << "err expected expression at: " << parenthesisNode->index + 1 << std::endl;
-            assert(expressionNode != nullptr);
-        }
-    };
-
-    auto parse_as_type = [&parenthesisNode, index]() {
-        parenthesisNode->type = syntax_type::parenthesized_type;
-        AST_NODE* typeNode = parse_declaration_specifier(index, parenthesisNode->endIndex);
-        typeNode->parent = parenthesisNode;
-        parenthesisNode->branches.push_back(typeNode);
-    };
-
-    token* currentToken = &tokenVector[parenthesisNode->index + 1];
-    
-    switch (currentToken->Type) {
-    case variable: {
-        std::string key((char*)currentToken->value, currentToken->size);
-        symbol_data* data = symbolTableInfo->getIdentifier(key);
-
-        if (data) {
-            std::cout << "parsing!:" << key << ": " << std::endl;
-            if (data->type == symbol_type::Type) { //if the variable is a type aka declaration
-                parse_as_type();
-                break;
-            }
-            else {
-                parse_as_expression();
-                break;
-            }
-        }
-        else {
-            std::cout << "err attempted to parse unknown identifier:" << key << ": at: " << i << std::endl;
-            assert(false);
-            break;
-        }
-        //if neither a type nor label then treat it as an expression
-        parse_as_expression();
-        break;
-    }
-    case type::booleanType:
-    case type::charType:
-    case type::intType:
-    case type::floatType:
-    case type::doubleType:
-    case type::shortType:
-    case type::longType:
-    case type::unsignedType:
-    case type::signedType: //include all the type qualifiers etc here
-        parse_as_type();
-        break;
-    default:
-        parse_as_expression();
-        break;
     }
 }
 
