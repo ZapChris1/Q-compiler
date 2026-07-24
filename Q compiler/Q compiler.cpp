@@ -92,7 +92,7 @@ enum baseType {
     _array,
     _struct,
     _union,
-    _enum
+    _enum,
 };
 
 enum symbol_type {
@@ -188,7 +188,7 @@ enum type {
     andEquals,
     xorEquals,
     orEquals,
-    null
+    null,
 };
 
 
@@ -410,90 +410,94 @@ enum syntax_type {
     scope_block,
     single_line,
     single_line_with_scope,
-    identifier
+    identifier,
+    struct_definition,
+    struct_declaration,
 };
 
 std::string syntax_type_to_string(syntax_type type)
 {
     switch (type)
     {
-    case null_type: return "null_type";
-    case translation_unit: return "translation_unit";
-    case parenthesized_expression: return "parenthesized_expression";
-    case type_cast: return "type_cast";
-    case parenthesized_type: return "parenthesized_type";
-    case compound_literal: return "compound_literal";
-    case compound_literal_parameters: return "compound_literal_parameters";
-    case index_operation: return "index_operation";
-    case function_call: return "function_call";
-    case function_arguments: return "function_arguments";
-    case function_declaration: return "function_declaration";
-    case function_definition: return "function_definition";
-    case declaration_specifier: return "declaration_specifier";
-    case parameter_list: return "parameter_list";
-    case parameter_declaration: return "parameter_declaration";
-    case type_specifier: return "type_specifier";
-    case derefrence_operation: return "derefrence_operation";
-    case conditional_operation: return "conditional_operation";
-    case conditional_operator_false_case: return "conditional_operator_false_case";
-    case if_statement: return "if_statement";
-    case else_statement: return "else_statement";
-    case condition: return "condition";
-    case switch_statement: return "switch_statement";
-    case case_statement: return "case_statement";
-    case goto_statement: return "goto_statement";
-    case goto_destination: return "goto_destination";
-    case break_statement: return "break_statement";
-    case declarator: return "declarator";
-    case multiplication_operation: return "multiplication_operation";
-    case division_operation: return "division_operation";
-    case addition_operation: return "addition_operation";
-    case subtraction_operation: return "subtraction_operation";
-    case member_access: return "member_access";
-    case pointer_member_access: return "pointer_member_access";
-    case modulus_operation: return "modulus_operation";
-    case shift_left_operation: return "shift_left_operation";
-    case shift_right_operation: return "shift_right_operation";
-    case greater_than_comparison: return "greater_than_comparison";
-    case less_than_comparison: return "less_than_comparison";
-    case equal_comparison: return "equal_comparison";
-    case not_equal_comparison: return "not_equal_comparison";
-    case less_than_equal_comparison: return "less_than_equal_comparison";
-    case greater_than_equal_comparison: return "greater_than_equal_comparison";
-    case address_operation: return "address_operation";
-    case bitwise_and_operation: return "bitwise_and_operation";
-    case bitwise_not_operation: return "bitwise_not_operation";
-    case bitwise_xor_operation: return "bitwise_xor_operation";
-    case bitwise_or_operation: return "bitwise_or_operation";
-    case logical_or_operation: return "logical_or_operation";
-    case logical_and_operation: return "logical_and_operation";
-    case logical_not_operation: return "logical_not_operation";
-    case size_of_operation: return "size_of_operation";
-    case align_of_operation: return "align_of_operation";
-    case unary_positive: return "unary_positive";
-    case unary_negation: return "unary_negation";
-    case prefix_increment: return "prefix_increment";
-    case postfix_increment: return "postfix_increment";
-    case prefix_decrement: return "prefix_decrement";
-    case postfix_decrement: return "postfix_decrement";
-    case assignment: return "assignment";
-    case addition_assignment: return "addition_assignment";
-    case subtraction_assignment: return "subtraction_assignment";
-    case multiplication_assignment: return "multiplication_assignment";
-    case division_assignment: return "division_assignment";
-    case modulus_assignment: return "modulus_assignment";
-    case shift_left_assignment: return "shift_left_assignment";
-    case shift_right_assignment: return "shift_right_assignment";
-    case and_assignment: return "and_assignment";
-    case xor_assignment: return "xor_assignment";
-    case or_assignment: return "or_assignment";
-    case comma_seperator: return "comma_seperator";
-    case array_size_specifier: return "array_size_specifier";
-    case grammar_statement: return "grammar_statement";
-    case scope_block: return "scope_block";
-    case single_line: return "single_line";
-    case single_line_with_scope: return "single_line_with_scope";
-    case identifier: return "identifier";
+    case syntax_type::null_type: return "null_type";
+    case syntax_type::translation_unit: return "translation_unit";
+    case syntax_type::parenthesized_expression: return "parenthesized_expression";
+    case syntax_type::type_cast: return "type_cast";
+    case syntax_type::parenthesized_type: return "parenthesized_type";
+    case syntax_type::compound_literal: return "compound_literal";
+    case syntax_type::compound_literal_parameters: return "compound_literal_parameters";
+    case syntax_type::index_operation: return "index_operation";
+    case syntax_type::function_call: return "function_call";
+    case syntax_type::function_arguments: return "function_arguments";
+    case syntax_type::function_declaration: return "function_declaration";
+    case syntax_type::function_definition: return "function_definition";
+    case syntax_type::declaration_specifier: return "declaration_specifier";
+    case syntax_type::parameter_list: return "parameter_list";
+    case syntax_type::parameter_declaration: return "parameter_declaration";
+    case syntax_type::type_specifier: return "type_specifier";
+    case syntax_type::derefrence_operation: return "derefrence_operation";
+    case syntax_type::conditional_operation: return "conditional_operation";
+    case syntax_type::conditional_operator_false_case: return "conditional_operator_false_case";
+    case syntax_type::if_statement: return "if_statement";
+    case syntax_type::else_statement: return "else_statement";
+    case syntax_type::condition: return "condition";
+    case syntax_type::switch_statement: return "switch_statement";
+    case syntax_type::case_statement: return "case_statement";
+    case syntax_type::goto_statement: return "goto_statement";
+    case syntax_type::goto_destination: return "goto_destination";
+    case syntax_type::break_statement: return "break_statement";
+    case syntax_type::declarator: return "declarator";
+    case syntax_type::multiplication_operation: return "multiplication_operation";
+    case syntax_type::division_operation: return "division_operation";
+    case syntax_type::addition_operation: return "addition_operation";
+    case syntax_type::subtraction_operation: return "subtraction_operation";
+    case syntax_type::member_access: return "member_access";
+    case syntax_type::pointer_member_access: return "pointer_member_access";
+    case syntax_type::modulus_operation: return "modulus_operation";
+    case syntax_type::shift_left_operation: return "shift_left_operation";
+    case syntax_type::shift_right_operation: return "shift_right_operation";
+    case syntax_type::greater_than_comparison: return "greater_than_comparison";
+    case syntax_type::less_than_comparison: return "less_than_comparison";
+    case syntax_type::equal_comparison: return "equal_comparison";
+    case syntax_type::not_equal_comparison: return "not_equal_comparison";
+    case syntax_type::less_than_equal_comparison: return "less_than_equal_comparison";
+    case syntax_type::greater_than_equal_comparison: return "greater_than_equal_comparison";
+    case syntax_type::address_operation: return "address_operation";
+    case syntax_type::bitwise_and_operation: return "bitwise_and_operation";
+    case syntax_type::bitwise_not_operation: return "bitwise_not_operation";
+    case syntax_type::bitwise_xor_operation: return "bitwise_xor_operation";
+    case syntax_type::bitwise_or_operation: return "bitwise_or_operation";
+    case syntax_type::logical_or_operation: return "logical_or_operation";
+    case syntax_type::logical_and_operation: return "logical_and_operation";
+    case syntax_type::logical_not_operation: return "logical_not_operation";
+    case syntax_type::size_of_operation: return "size_of_operation";
+    case syntax_type::align_of_operation: return "align_of_operation";
+    case syntax_type::unary_positive: return "unary_positive";
+    case syntax_type::unary_negation: return "unary_negation";
+    case syntax_type::prefix_increment: return "prefix_increment";
+    case syntax_type::postfix_increment: return "postfix_increment";
+    case syntax_type::prefix_decrement: return "prefix_decrement";
+    case syntax_type::postfix_decrement: return "postfix_decrement";
+    case syntax_type::assignment: return "assignment";
+    case syntax_type::addition_assignment: return "addition_assignment";
+    case syntax_type::subtraction_assignment: return "subtraction_assignment";
+    case syntax_type::multiplication_assignment: return "multiplication_assignment";
+    case syntax_type::division_assignment: return "division_assignment";
+    case syntax_type::modulus_assignment: return "modulus_assignment";
+    case syntax_type::shift_left_assignment: return "shift_left_assignment";
+    case syntax_type::shift_right_assignment: return "shift_right_assignment";
+    case syntax_type::and_assignment: return "and_assignment";
+    case syntax_type::xor_assignment: return "xor_assignment";
+    case syntax_type::or_assignment: return "or_assignment";
+    case syntax_type::comma_seperator: return "comma_seperator";
+    case syntax_type::array_size_specifier: return "array_size_specifier";
+    case syntax_type::grammar_statement: return "grammar_statement";
+    case syntax_type::scope_block: return "scope_block";
+    case syntax_type::single_line: return "single_line";
+    case syntax_type::single_line_with_scope: return "single_line_with_scope";
+    case syntax_type::identifier: return "identifier";
+    case syntax_type::struct_definition: return "struct_definition";
+    case syntax_type::struct_declaration: return "struct_declaration";
     default: return "unknown";
     }
 }
@@ -1966,7 +1970,7 @@ void parse_line(AST_NODE* parentNode, size_t firstIndex, size_t end) { //end is 
 }
 
 void parse_struct_definition(AST_NODE* structNode, size_t start) {
-    symbol_data* structData = symbolTableInfo->declareType(structNode->key);
+    symbol_data* structData = symbolTableInfo->getIdentifier(structNode->key);
 
     auto parse_as_declaration = [&structNode, structData](size_t index) {
         AST_NODE* declarationSpecifierNode = parse_declaration_specifier(index, structNode->endIndex);
@@ -2125,7 +2129,7 @@ void parse_block(AST_NODE* inputNode) { //inputNode->index is ( //endIndex is )
             goto expression_case;
             }
         case type::structType:
-            if (i + 1 < tokenVector.size() and tokenVector[i + 1].Type == identifier) {
+            if (i + 1 < tokenVector.size() and tokenVector[i + 1].Type == type::variable) {
                 AST_NODE* structNode = new AST_NODE;
                 structNode->index = i;
                 structNode->parent = inputNode;
@@ -2134,29 +2138,30 @@ void parse_block(AST_NODE* inputNode) { //inputNode->index is ( //endIndex is )
 
                 token* identifierToken = &tokenVector[i + 1];
                 std::string key((char*)identifierToken->value, identifierToken->size);
-                symbol_data* data = symbolTableInfo->declareVariable(key);
+                symbol_data* data = symbolTableInfo->declareType(key);
                 assert(data != nullptr);
                 if (data == nullptr) {
                     std::cout << "err creating struct data at: " << i << std::endl;
                 }
                 else {
-                    if (i + 1 < tokenVector.size() and tokenVector[i + 1].Type == openBracket) { //definition
+                    if (i + 2 < tokenVector.size() and tokenVector[i + 2].Type == openCurlyBracket) { //definition
                         structNode->type = syntax_type::struct_definition;
                         structNode->key = key;
                         data->destinationNode = structNode;
-                        structNode->endIndex = *(size_t*)tokenVector[i + 1].value;
-                        parse_struct_definition(structNode, i + 1);
+                        structNode->endIndex = *(size_t*)tokenVector[i + 2].value;
+                        parse_struct_definition(structNode, i + 2);
                     }
                     else {
                         structNode->endIndex = i + 1;
                         structNode->type = syntax_type::struct_declaration;
                     }
                 }
+
+                i = structNode->endIndex;
             }
             else {
                 std::cout << "err, expected a identifer for the struct name at: " << i << std::endl;
             }
-
 
             break;
         case type::booleanType:
