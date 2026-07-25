@@ -1,3 +1,5 @@
 struct foo {
-
+	unsigned int x;
+	int fooc() {
+	}
 };

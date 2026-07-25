@@ -1128,7 +1128,7 @@ AST_NODE* parse_token(size_t inputIndex, AST_NODE* lastNode, bool nud, size_t en
         inputNode->type = syntax_type::logical_and_operation;
         binary_operation();
         break;
-    case type::sizeOf: //add support for sizeof in the future
+    case type::sizeOf:
         if (nud) {
             inputNode->type = syntax_type::size_of_operation;
             unary_prefix_operation();
@@ -1377,9 +1377,12 @@ void parse_declaration_identifiers(size_t endIndex, AST_NODE* declaration_node) 
     size_t startIndex = declaration_node->endIndex + 1;
     size_t start = startIndex;
 
-    auto parse_prefix_modifiers = [](AST_NODE* identifierNode, size_t inputPosition, size_t start, symbol_data& currentSymbol) {
+    auto parse_prefix_modifiers = [declaration_node](AST_NODE* identifierNode, size_t inputPosition, size_t start, symbol_data& currentSymbol) {
         for (size_t position = inputPosition; position-- >= start;) { //prefix operators
-            if (tokenVector[position].Type == asterisk) currentSymbol.typeObject.push_back(baseType::_pointer);
+            if (tokenVector[position].Type == asterisk) {
+                currentSymbol.typeObject.push_back(baseType::_pointer);
+                if (start > declaration_node->endIndex) return true;
+            }
         }
     };
     
@@ -1390,9 +1393,13 @@ void parse_declaration_identifiers(size_t endIndex, AST_NODE* declaration_node) 
 
         symbol_data currentSymbol;
 
+        bool enclosed_ptr = false;
+        bool valid_function = true;
+
         size_t position = identifierPosition + 1;
         for (; position < endIndex; position++) { //postfix operators
             if (tokenVector[position].Type == openBracket) {
+                valid_function = false;
                 currentSymbol.typeObject.push_back(_array);
                 AST_NODE* arraySizeExpression = new AST_NODE;
                 arraySizeExpression->parent = identifierNode;
@@ -1404,9 +1411,27 @@ void parse_declaration_identifiers(size_t endIndex, AST_NODE* declaration_node) 
                 currentSymbol.arraySizes.push_back(arraySizeExpression);
                 identifierNode->endIndex = arraySizeExpression->endIndex;
             } else if (tokenVector[position].Type == closeParenthesis) {
-                parse_prefix_modifiers(identifierNode, prefixPosition, *(size_t*)tokenVector[position].value, currentSymbol);
+                if (parse_prefix_modifiers(identifierNode, prefixPosition, *(size_t*)tokenVector[position].value, currentSymbol)) enclosed_ptr = true;
                 prefixPosition = position;
             } else if (tokenVector[position].Type == openParenthesis) {
+
+                if (enclosed_ptr) {
+                    valid_function = false;
+                    currentSymbol.typeObject.push_back(_function);
+                    AST_NODE* functionParameters = new AST_NODE;
+                    functionParameters->parent = identifierNode;
+                    functionParameters->type = syntax_type::parameter_declaration; //output specfication for the function
+                    functionParameters->index = position; //start (
+                    functionParameters->endIndex = *(size_t*)tokenVector[functionParameters->index].value; //end )
+                    identifierNode->branches.push_back(functionParameters);
+                    recursive_parse(functionParameters);
+                    continue;
+                }
+                else if (not valid_function) {
+                    std::cout << "err, invalid function at: " << position << std::endl;
+                }
+                assert(valid_function);
+                valid_function = false;
                 if (!declaration_node->branches.empty()) {
                     std::cout << "err, cannot have multiple declarations with a function declaraton at: " << position << std::endl;
                 }
@@ -1596,11 +1621,14 @@ void parse_declaration_identifiers_with_unnammed_keys(size_t endIndex, AST_NODE*
     size_t startIndex = declaration_node->endIndex + 1;
     size_t start = startIndex;
 
-    auto parse_prefix_modifiers = [](AST_NODE* identifierNode, size_t inputPosition, size_t start, symbol_data& currentSymbol) {
+    auto parse_prefix_modifiers = [declaration_node](AST_NODE* identifierNode, size_t inputPosition, size_t start, symbol_data& currentSymbol) {
         for (size_t position = inputPosition; position-- >= start;) { //prefix operators
-            if (tokenVector[position].Type == asterisk) currentSymbol.typeObject.push_back(baseType::_pointer);
+            if (tokenVector[position].Type == asterisk) {
+                currentSymbol.typeObject.push_back(baseType::_pointer);
+                if (start > declaration_node->endIndex) return true;
+            }
         }
-        };
+    };
 
     auto parse_postfix_modifiers = [&parse_prefix_modifiers, &declaration_node, &outVector, endIndex](AST_NODE* identifierNode, size_t start) {
 
@@ -1609,9 +1637,13 @@ void parse_declaration_identifiers_with_unnammed_keys(size_t endIndex, AST_NODE*
 
         symbol_data currentSymbol;
 
+        bool enclosed_ptr = false;
+        bool valid_function = true;
+
         size_t position = identifierPosition + 1;
         for (; position < endIndex; position++) { //postfix operators
             if (tokenVector[position].Type == openBracket) {
+                valid_function = false;
                 currentSymbol.typeObject.push_back(_array);
                 AST_NODE* arraySizeExpression = new AST_NODE;
                 arraySizeExpression->parent = identifierNode;
@@ -1624,11 +1656,27 @@ void parse_declaration_identifiers_with_unnammed_keys(size_t endIndex, AST_NODE*
                 identifierNode->endIndex = arraySizeExpression->endIndex;
             }
             else if (tokenVector[position].Type == closeParenthesis) {
-                parse_prefix_modifiers(identifierNode, prefixPosition, *(size_t*)tokenVector[position].value, currentSymbol);
+                if (parse_prefix_modifiers(identifierNode, prefixPosition, *(size_t*)tokenVector[position].value, currentSymbol)) enclosed_ptr = true;
                 prefixPosition = position;
             }
             else if (tokenVector[position].Type == openParenthesis) { //fix later
                 
+                if (enclosed_ptr) {
+                    currentSymbol.typeObject.push_back(_function);
+                    AST_NODE* functionParameters = new AST_NODE;
+                    functionParameters->parent = identifierNode;
+                    functionParameters->type = syntax_type::parameter_declaration; //output specfication for the function
+                    functionParameters->index = position; //start (
+                    functionParameters->endIndex = *(size_t*)tokenVector[functionParameters->index].value; //end )
+                    identifierNode->branches.push_back(functionParameters);
+                    recursive_parse(functionParameters);
+                    continue;
+                }
+                else if (not valid_function) {
+                    std::cout << "err, invalid function at: " << position << std::endl;
+                }
+                assert(valid_function);
+
                 if (!declaration_node->branches.empty()) {
                     std::cout << "err, cannot have multiple declarations with a function declaraton at: " << position << std::endl;
                 }
