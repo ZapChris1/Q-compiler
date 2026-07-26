@@ -146,6 +146,7 @@ enum type {
     closeCurlyBracket,
     eol, //end of line ';'
     colon,
+    forStatement,
     ifStatement,
     elseStatement,
     switchStatement,
@@ -353,6 +354,8 @@ enum syntax_type {
     derefrence_operation,
     conditional_operation,
     conditional_operator_false_case,
+    for_loop,
+    for_loop_parenthesis,
     if_statement,
     else_statement,
     condition,
@@ -438,6 +441,8 @@ std::string syntax_type_to_string(syntax_type type)
     case syntax_type::derefrence_operation: return "derefrence_operation";
     case syntax_type::conditional_operation: return "conditional_operation";
     case syntax_type::conditional_operator_false_case: return "conditional_operator_false_case";
+    case syntax_type::for_loop: return "for_loop";
+    case syntax_type::for_loop_parenthesis: return "for_loop_parenthesis";
     case syntax_type::if_statement: return "if_statement";
     case syntax_type::else_statement: return "else_statement";
     case syntax_type::condition: return "condition";
@@ -2121,6 +2126,9 @@ void parse_block(AST_NODE* inputNode) { //inputNode->index is ( //endIndex is )
         case gotoStatement:
             parse_control_flow_statement(syntax_type::goto_statement, i);
             break;
+        case forStatement:
+            parse_control_flow_statement(syntax_type::for_loop, i);
+            break;
         case caseStatement:
             parse_control_flow_statement(syntax_type::case_statement, i);
             break;
@@ -2314,6 +2322,39 @@ void recursive_parse(AST_NODE* inputNode) {
                 inputNode->endIndex = bodyNode->endIndex;
             }
         }
+            break;
+        case for_loop: {
+            token* conditionToken = &tokenVector[position + 1];
+            if (conditionToken->Type != openParenthesis) {
+                std::cout << "err, expected parenthesis at: " << position + 1 << std::endl;
+            }
+
+            AST_NODE* conditionNode = new AST_NODE;
+            conditionNode->value = symbolTableInfo->createLocalScope();
+            conditionNode->type = syntax_type::for_loop_parenthesis;
+            conditionNode->index = position + 1;
+            conditionNode->endIndex = *(size_t*)conditionToken->value;
+            conditionNode->parent = inputNode;
+            parse_expression(conditionNode);
+            inputNode->branches.push_back(conditionNode);
+
+            AST_NODE* bodyNode = new AST_NODE;
+            bodyNode->index = conditionNode->endIndex + 1;
+            bodyNode->parent = inputNode;
+            bodyNode->type = syntax_type::grammar_statement; //single line vs scope block is handled here
+            inputNode->branches.push_back(bodyNode);
+            recursive_parse(bodyNode);
+
+            inputNode->endIndex = bodyNode->endIndex;
+        }
+                         break;
+        case for_loop_parenthesis:
+            token* currentToken = &tokenVector[inputNode->index + 1];
+            if (currentToken->Type == eol) {
+                inputNode->branches.push_back(nullptr);
+            }
+            parse_block(inputNode);
+            //add semantic checks
             break;
         case grammar_statement: {
             token* currentToken = &tokenVector[position];
