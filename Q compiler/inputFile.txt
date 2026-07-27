@@ -1,5 +1,1 @@
-struct foo {
-	unsigned int x;
-	int fooc() {
-	}
-};
+int i = 0; i < 10;

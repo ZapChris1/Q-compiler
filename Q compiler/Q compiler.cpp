@@ -908,7 +908,8 @@ AST_NODE* parse_expression(AST_NODE* inputNode) { //assuming index is '(' and en
     return leftSide; //returns top node of the expression
 }
 
-AST_NODE* parse_declaration_specifier(size_t position, size_t endIndex);
+AST_NODE* parse_declaration_specifier(size_t position, size_t endIndex); //forward dec
+
 void parse_parenthesis_in_expression(AST_NODE* parenthesisNode) {
     size_t index = parenthesisNode->index + 1;
     if (index >= parenthesisNode->endIndex) {
@@ -1359,9 +1360,11 @@ AST_NODE* parse_declaration_specifier(size_t position, size_t endIndex) { //inde
         case longType:
         case unsignedType:
         case signedType:
+
             if (tokenVector[position + 1].Type == variable or tokenVector[position + 1].Type == asterisk) {
                 declarationSpecifierData.typeObject.push_back(tokenToBaseType(currentToken->Type));
-                underlyingType = symbolTableInfo->getIdentifier("int"); 
+                underlyingType = symbolTableInfo->getIdentifier("int");
+                if (tokenVector[position + 1].Type == variable) position++;
                 goto end;
             }
         default:
@@ -1526,7 +1529,7 @@ void parse_declaration_identifiers(size_t endIndex, AST_NODE* declaration_node) 
                     position = identifierNode->endIndex;
                 }
             }
-            else if (tokenVector[position].Type == equals or tokenVector[position].Type == comma) {
+            else if (tokenVector[position].Type == equals or tokenVector[position].Type == comma or tokenVector[position].Type == eol) {
                 parse_prefix_modifiers(identifierNode, prefixPosition, start, currentSymbol);
                 currentSymbol.underlyingType = symbolTableInfo->getIdentifier(declaration_node->key);
                 currentSymbol.type = symbol_type::Variable;
@@ -1594,8 +1597,38 @@ void parse_declaration_identifiers(size_t endIndex, AST_NODE* declaration_node) 
                 start = position + 1;
                 
                 if (tokenVector[newPosition].Type == equals) {
-                    lastIsAssignment = true;
+                    
+                    size_t expressionEndIndex = newPosition;
+                    for (size_t layers = 0; expressionEndIndex < endIndex; expressionEndIndex++) {
+                        switch (tokenVector[newPosition].Type) {
+                        case openBracket:
+                        case openCurlyBracket:
+                        case openParenthesis:
+                            layers++;
+                            break;
+                        case closeBracket:
+                        case closeCurlyBracket:
+                        case closeParenthesis:
+                            if (layers) layers--;
+                            else std::cout << "err expected matching parenthesis within expression at: " << expressionEndIndex << std::endl;
+                            break;
+                        case comma:
+                            if (layers) break;
+                            else goto found;
+                        }
+                    }
+                    found:
+                    AST_NODE* identifierNode = declaration_node->branches.back();
+                    AST_NODE* value = parse_expression(start - 1, expressionEndIndex);
+                    identifierNode->branches.push_back(value);
+                    value->parent = identifierNode;
+                    identifierNode->endIndex = value->endIndex;
+                    declaration_node->endIndex = identifierNode->endIndex;
+
+                    position = identifierNode->endIndex;
+                    start = position + 1;
                 }
+                else if (tokenVector[newPosition].Type == eol) goto end;
             }
         }
             break;
@@ -1607,16 +1640,6 @@ void parse_declaration_identifiers(size_t endIndex, AST_NODE* declaration_node) 
 end:
     if (declaration_node->branches.empty()) {
         std::cout << "err empty declaration at: " << declaration_node->index << std::endl;
-    }
-    else {
-        if (lastIsAssignment) {
-            AST_NODE* identifierNode = declaration_node->branches.back();
-            AST_NODE* value = parse_expression(start - 1, position);
-            identifierNode->branches.push_back(value);
-            value->parent = identifierNode;
-            identifierNode->endIndex = value->endIndex;
-            declaration_node->endIndex = identifierNode->endIndex;
-        }
     }
 }
 
@@ -1773,7 +1796,7 @@ void parse_declaration_identifiers_with_unnammed_keys(size_t endIndex, AST_NODE*
                     position = identifierNode->endIndex;
                 }
             }
-            else if (tokenVector[position].Type == equals or tokenVector[position].Type == comma) {
+            else if (tokenVector[position].Type == equals or tokenVector[position].Type == comma or tokenVector[position].Type == eol) {
                 key_pair pair;
                 pair.memberName = identifierNode->key;
                 pair.unnamedKey = symbolTableInfo->generateUnnamedKey();
@@ -1851,8 +1874,38 @@ void parse_declaration_identifiers_with_unnammed_keys(size_t endIndex, AST_NODE*
                 start = position + 1;
 
                 if (tokenVector[newPosition].Type == equals) {
-                    lastIsAssignment = true;
+
+                    size_t expressionEndIndex = newPosition;
+                    for (size_t layers = 0; expressionEndIndex < endIndex; expressionEndIndex++) {
+                        switch (tokenVector[newPosition].Type) {
+                        case openBracket:
+                        case openCurlyBracket:
+                        case openParenthesis:
+                            layers++;
+                            break;
+                        case closeBracket:
+                        case closeCurlyBracket:
+                        case closeParenthesis:
+                            if (layers) layers--;
+                            else std::cout << "err expected matching parenthesis within expression at: " << expressionEndIndex << std::endl;
+                            break;
+                        case comma:
+                            if (layers) break;
+                            else goto found;
+                        }
+                    }
+                found:
+                    AST_NODE* identifierNode = declaration_node->branches.back();
+                    AST_NODE* value = parse_expression(start - 1, expressionEndIndex);
+                    identifierNode->branches.push_back(value);
+                    value->parent = identifierNode;
+                    identifierNode->endIndex = value->endIndex;
+                    declaration_node->endIndex = identifierNode->endIndex;
+
+                    position = identifierNode->endIndex;
+                    start = position + 1;
                 }
+                else if (tokenVector[newPosition].Type == eol) goto end;
             }
         }
                      break;
@@ -1998,11 +2051,6 @@ void parse_line(AST_NODE* parentNode, size_t firstIndex, size_t end) { //end is 
             }
             break;
         }
-        case type::booleanType:
-        case type::charType:
-        case type::intType:
-        case type::floatType:
-        case type::doubleType:
         case type::shortType:
         case type::longType:
         case type::unsignedType:
@@ -2029,6 +2077,7 @@ void parse_struct_definition(AST_NODE* structNode, size_t start) {
         AST_NODE* declarationSpecifierNode = parse_declaration_specifier(index, structNode->endIndex);
         declarationSpecifierNode->parent = structNode;
         structNode->branches.push_back(declarationSpecifierNode);
+        
 
         std::vector<key_pair> pairs;
 
@@ -2042,6 +2091,7 @@ void parse_struct_definition(AST_NODE* structNode, size_t start) {
                 std::cout << "err, duplicate members in struct: " << structNode->key << " at: " << index << std::endl;
             }
         }
+        return declarationSpecifierNode->endIndex;
     };
     
     for (size_t index = start; index < structNode->endIndex; index++) {
@@ -2056,7 +2106,7 @@ void parse_struct_definition(AST_NODE* structNode, size_t start) {
         case type::longType:
         case type::unsignedType:
         case type::signedType: //include all the type qualifiers etc here
-            parse_as_declaration(index);
+            index = parse_as_declaration(index);
             break;
         case type::variable:
             std::string key((char*)currentToken->value, currentToken->size);
@@ -2066,7 +2116,7 @@ void parse_struct_definition(AST_NODE* structNode, size_t start) {
             }
             else {
                 if (data->type == symbol_type::Type) {
-                    parse_as_declaration(index);
+                    index = parse_as_declaration(index);
                 }
                 else {
                     std::cout << "err, expected declaration at: " << index << std::endl;
@@ -2232,6 +2282,7 @@ void parse_block(AST_NODE* inputNode) { //inputNode->index is ( //endIndex is )
             parse_declaration(i);
             break;
         default:
+            assert(false);
         expression_case: {
             AST_NODE* expressionNode = parse_expression(i - 1, inputNode->endIndex);
             if (expressionNode != nullptr) {
@@ -2324,22 +2375,22 @@ void recursive_parse(AST_NODE* inputNode) {
         }
             break;
         case for_loop: {
-            token* conditionToken = &tokenVector[position + 1];
-            if (conditionToken->Type != openParenthesis) {
+            token* parenthesisToken = &tokenVector[position + 1];
+            if (parenthesisToken->Type != openParenthesis) {
                 std::cout << "err, expected parenthesis at: " << position + 1 << std::endl;
             }
 
-            AST_NODE* conditionNode = new AST_NODE;
-            conditionNode->value = symbolTableInfo->createLocalScope();
-            conditionNode->type = syntax_type::for_loop_parenthesis;
-            conditionNode->index = position + 1;
-            conditionNode->endIndex = *(size_t*)conditionToken->value;
-            conditionNode->parent = inputNode;
-            parse_expression(conditionNode);
-            inputNode->branches.push_back(conditionNode);
+            AST_NODE* parenthesis = new AST_NODE;
+            parenthesis->value = symbolTableInfo->createLocalScope();
+            parenthesis->type = syntax_type::for_loop_parenthesis;
+            parenthesis->index = position + 1;
+            parenthesis->endIndex = *(size_t*)parenthesisToken->value;
+            parenthesis->parent = inputNode;
+            recursive_parse(parenthesis);
+            inputNode->branches.push_back(parenthesis);
 
             AST_NODE* bodyNode = new AST_NODE;
-            bodyNode->index = conditionNode->endIndex + 1;
+            bodyNode->index = parenthesis->endIndex + 1;
             bodyNode->parent = inputNode;
             bodyNode->type = syntax_type::grammar_statement; //single line vs scope block is handled here
             inputNode->branches.push_back(bodyNode);
@@ -2347,8 +2398,9 @@ void recursive_parse(AST_NODE* inputNode) {
 
             inputNode->endIndex = bodyNode->endIndex;
         }
-                         break;
+            break;
         case for_loop_parenthesis:
+        {
             token* currentToken = &tokenVector[inputNode->index + 1];
             if (currentToken->Type == eol) {
                 inputNode->branches.push_back(nullptr);
@@ -2356,6 +2408,7 @@ void recursive_parse(AST_NODE* inputNode) {
             parse_block(inputNode);
             //add semantic checks
             break;
+        }
         case grammar_statement: {
             token* currentToken = &tokenVector[position];
             if (currentToken->Type == openCurlyBracket) {
@@ -2768,23 +2821,31 @@ int main() {
     std::vector<bracket_information> bracketVector;
 
     std::unordered_map<std::string, type> tokenKeywordTable;
-    tokenKeywordTable["void"] = type::voidType;
-    tokenKeywordTable["bool"] = type::booleanType;
-    tokenKeywordTable["char"] = type::charType;
+    //implement type qualifiers here
     tokenKeywordTable["short"] = type::shortType;
     tokenKeywordTable["long"] = type::longType;
-    tokenKeywordTable["float"] = type::floatType;
-    tokenKeywordTable["double"] = type::doubleType;
+    tokenKeywordTable["signed"] = type::signedType;
+    tokenKeywordTable["unsigned"] = type::unsignedType;
+    //actual types (int, char, etc) are declared in the constructor for the symbol table class
+
+    //control flow keywords
+    tokenKeywordTable["for"] = type::forStatement;
     tokenKeywordTable["if"] = type::ifStatement;
     tokenKeywordTable["else"] = type::elseStatement;
     tokenKeywordTable["switch"] = type::switchStatement;
     tokenKeywordTable["case"] = type::caseStatement;
+
+    //other keywords
     tokenKeywordTable["sizeof"] = type::sizeOf;
     tokenKeywordTable["alignof"] = type::alignOf;
     tokenKeywordTable["and"] = type::And;
     tokenKeywordTable["or"] = type::Or;
     tokenKeywordTable["xor"] = type::xOr;
+
     tokenKeywordTable["struct"] = type::structType;
+    tokenKeywordTable["enum"] = type::enumType;
+    tokenKeywordTable["union"] = type::unionType;
+
 
     tokenize(sourceString, bracketVector, tokenKeywordTable);
     orderBrackets(bracketVector);
