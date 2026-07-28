@@ -157,7 +157,6 @@ enum type {
     comma,
     address,
     doubleAddress,
-    asterisk,
     pointer,
     voidType,
     booleanType,
@@ -1361,7 +1360,7 @@ AST_NODE* parse_declaration_specifier(size_t position, size_t endIndex) { //inde
         case unsignedType:
         case signedType:
 
-            if (tokenVector[position + 1].Type == variable or tokenVector[position + 1].Type == asterisk) {
+            if (tokenVector[position + 1].Type == variable or tokenVector[position + 1].Type == multiplication) {
                 declarationSpecifierData.typeObject.push_back(tokenToBaseType(currentToken->Type));
                 underlyingType = symbolTableInfo->getIdentifier("int");
                 if (tokenVector[position + 1].Type == variable) position++;
@@ -1379,7 +1378,7 @@ AST_NODE* parse_declaration_specifier(size_t position, size_t endIndex) { //inde
     return declarationSpecifierNode;
 }
 
-void parse_declaration_identifiers(size_t endIndex, AST_NODE* declaration_node) { //inParameters refers to whether this declaration is parameter declaration
+void parse_declaration_identifiers(size_t endIndex, AST_NODE* declaration_node, std::vector<key_pair>* outVector = nullptr, bool use_unnamed_keys = false) { //inParameters refers to whether this declaration is parameter declaration
     std::cout << "parsing declaration identifiers at!: " << declaration_node->index << std::endl;
     bool typeObjectReady = false;
     size_t startIndex = declaration_node->endIndex + 1;
@@ -1387,14 +1386,14 @@ void parse_declaration_identifiers(size_t endIndex, AST_NODE* declaration_node) 
 
     auto parse_prefix_modifiers = [declaration_node](AST_NODE* identifierNode, size_t inputPosition, size_t start, symbol_data& currentSymbol) {
         for (size_t position = inputPosition; position-- >= start;) { //prefix operators
-            if (tokenVector[position].Type == asterisk) {
+            if (tokenVector[position].Type == multiplication) {
                 currentSymbol.typeObject.push_back(baseType::_pointer);
                 if (start > declaration_node->endIndex) return true;
             }
         }
     };
     
-    auto parse_postfix_modifiers = [&parse_prefix_modifiers, &declaration_node, endIndex](AST_NODE* identifierNode, size_t start) {
+    auto parse_postfix_modifiers = [&parse_prefix_modifiers, &declaration_node, endIndex, outVector, use_unnamed_keys](AST_NODE* identifierNode, size_t start) {
                 
         size_t identifierPosition = identifierNode->index;
         size_t prefixPosition = identifierPosition;
@@ -1530,17 +1529,44 @@ void parse_declaration_identifiers(size_t endIndex, AST_NODE* declaration_node) 
                 }
             }
             else if (tokenVector[position].Type == equals or tokenVector[position].Type == comma or tokenVector[position].Type == eol) {
-                parse_prefix_modifiers(identifierNode, prefixPosition, start, currentSymbol);
-                currentSymbol.underlyingType = symbolTableInfo->getIdentifier(declaration_node->key);
-                currentSymbol.type = symbol_type::Variable;
-                symbolTableInfo->declareIdentifier(identifierNode->key, currentSymbol);
+                if (outVector != nullptr and use_unnamed_keys) {
+                    key_pair pair;
+                    pair.memberName = identifierNode->key;
+                    pair.unnamedKey = symbolTableInfo->generateUnnamedKey();
+
+                    parse_prefix_modifiers(identifierNode, prefixPosition, start, currentSymbol);
+                    currentSymbol.underlyingType = symbolTableInfo->getIdentifier(declaration_node->key);
+                    currentSymbol.type = symbol_type::Variable;
+                    symbolTableInfo->declareIdentifier(pair.unnamedKey, currentSymbol);
+                }
+                else {
+                    parse_prefix_modifiers(identifierNode, prefixPosition, start, currentSymbol);
+                    currentSymbol.underlyingType = symbolTableInfo->getIdentifier(declaration_node->key);
+                    currentSymbol.type = symbol_type::Variable;
+                    symbolTableInfo->declareIdentifier(identifierNode->key, currentSymbol);
+                }
+                
                 return position;
             }
         }
-        parse_prefix_modifiers(identifierNode, prefixPosition, start, currentSymbol);
-        currentSymbol.underlyingType = symbolTableInfo->getIdentifier(declaration_node->key);
-        currentSymbol.type = symbol_type::Variable;
-        symbolTableInfo->declareIdentifier(identifierNode->key, currentSymbol);
+
+        if (outVector != nullptr and use_unnamed_keys) {
+            key_pair pair;
+            pair.memberName = identifierNode->key;
+            pair.unnamedKey = symbolTableInfo->generateUnnamedKey();
+
+            parse_prefix_modifiers(identifierNode, prefixPosition, start, currentSymbol);
+            currentSymbol.underlyingType = symbolTableInfo->getIdentifier(declaration_node->key);
+            currentSymbol.type = symbol_type::Variable;
+            symbolTableInfo->declareIdentifier(pair.unnamedKey, currentSymbol);
+        }
+        else {
+            parse_prefix_modifiers(identifierNode, prefixPosition, start, currentSymbol);
+            currentSymbol.underlyingType = symbolTableInfo->getIdentifier(declaration_node->key);
+            currentSymbol.type = symbol_type::Variable;
+            symbolTableInfo->declareIdentifier(identifierNode->key, currentSymbol);
+        }
+
         return (size_t)0;
     };
     bool lastIsAssignment = false;
@@ -1600,7 +1626,7 @@ void parse_declaration_identifiers(size_t endIndex, AST_NODE* declaration_node) 
                     
                     size_t expressionEndIndex = newPosition;
                     for (size_t layers = 0; expressionEndIndex < endIndex; expressionEndIndex++) {
-                        switch (tokenVector[newPosition].Type) {
+                        switch (tokenVector[expressionEndIndex].Type) {
                         case openBracket:
                         case openCurlyBracket:
                         case openParenthesis:
@@ -1609,11 +1635,11 @@ void parse_declaration_identifiers(size_t endIndex, AST_NODE* declaration_node) 
                         case closeBracket:
                         case closeCurlyBracket:
                         case closeParenthesis:
-                            if (layers) layers--;
+                            if (layers != 0) layers--;
                             else std::cout << "err expected matching parenthesis within expression at: " << expressionEndIndex << std::endl;
                             break;
                         case comma:
-                            if (layers) break;
+                            if (layers != 0) break;
                             else goto found;
                         }
                     }
@@ -1632,6 +1658,8 @@ void parse_declaration_identifiers(size_t endIndex, AST_NODE* declaration_node) 
             }
         }
             break;
+        case eol:
+            goto end;
         case equals: //supposed to be found in the postfix parser
             std::cout << "err missing identifier at: " << position << std::endl;
             break;
@@ -1642,300 +1670,12 @@ end:
         std::cout << "err empty declaration at: " << declaration_node->index << std::endl;
     }
 }
-
-void parse_declaration_identifiers_with_unnammed_keys(size_t endIndex, AST_NODE* declaration_node, std::vector<key_pair>& outVector) { //inParameters refers to whether this declaration is parameter declaration    
-    std::cout << "parsing declaration identifiers at!: " << declaration_node->index << std::endl;
-    bool typeObjectReady = false;
-    size_t startIndex = declaration_node->endIndex + 1;
-    size_t start = startIndex;
-
-    auto parse_prefix_modifiers = [declaration_node](AST_NODE* identifierNode, size_t inputPosition, size_t start, symbol_data& currentSymbol) {
-        for (size_t position = inputPosition; position-- >= start;) { //prefix operators
-            if (tokenVector[position].Type == asterisk) {
-                currentSymbol.typeObject.push_back(baseType::_pointer);
-                if (start > declaration_node->endIndex) return true;
-            }
-        }
-    };
-
-    auto parse_postfix_modifiers = [&parse_prefix_modifiers, &declaration_node, &outVector, endIndex](AST_NODE* identifierNode, size_t start) {
-
-        size_t identifierPosition = identifierNode->index;
-        size_t prefixPosition = identifierPosition;
-
-        symbol_data currentSymbol;
-
-        bool enclosed_ptr = false;
-        bool valid_function = true;
-
-        size_t position = identifierPosition + 1;
-        for (; position < endIndex; position++) { //postfix operators
-            if (tokenVector[position].Type == openBracket) {
-                valid_function = false;
-                currentSymbol.typeObject.push_back(_array);
-                AST_NODE* arraySizeExpression = new AST_NODE;
-                arraySizeExpression->parent = identifierNode;
-                arraySizeExpression->type = syntax_type::array_size_specifier;
-                arraySizeExpression->index = position; //[ token
-                arraySizeExpression->endIndex = *(size_t*)tokenVector[position].value; //] token
-                position = arraySizeExpression->endIndex;
-                recursive_parse(arraySizeExpression); //add logic for getting the size and etc of the array (for multi dim arrays)
-                currentSymbol.arraySizes.push_back(arraySizeExpression);
-                identifierNode->endIndex = arraySizeExpression->endIndex;
-            }
-            else if (tokenVector[position].Type == closeParenthesis) {
-                if (parse_prefix_modifiers(identifierNode, prefixPosition, *(size_t*)tokenVector[position].value, currentSymbol)) enclosed_ptr = true;
-                prefixPosition = position;
-            }
-            else if (tokenVector[position].Type == openParenthesis) { //fix later
-                
-                if (enclosed_ptr) {
-                    currentSymbol.typeObject.push_back(_function);
-                    AST_NODE* functionParameters = new AST_NODE;
-                    functionParameters->parent = identifierNode;
-                    functionParameters->type = syntax_type::parameter_declaration; //output specfication for the function
-                    functionParameters->index = position; //start (
-                    functionParameters->endIndex = *(size_t*)tokenVector[functionParameters->index].value; //end )
-                    identifierNode->branches.push_back(functionParameters);
-                    recursive_parse(functionParameters);
-                    continue;
-                }
-                else if (not valid_function) {
-                    std::cout << "err, invalid function at: " << position << std::endl;
-                }
-                assert(valid_function);
-
-                if (!declaration_node->branches.empty()) {
-                    std::cout << "err, cannot have multiple declarations with a function declaraton at: " << position << std::endl;
-                }
-                identifierNode->index = declaration_node->index;
-                currentSymbol.typeObject.push_back(_function);
-                AST_NODE* functionParameters = new AST_NODE;
-                functionParameters->parent = identifierNode;
-                functionParameters->type = syntax_type::parameter_declaration; //output specfication for the function
-                functionParameters->index = position; //start (
-                functionParameters->endIndex = *(size_t*)tokenVector[functionParameters->index].value; //end )
-                identifierNode->branches.push_back(functionParameters);
-                recursive_parse(functionParameters);
-
-                symbol_data* underlyingTypeData = symbolTableInfo->getIdentifier(declaration_node->key);
-                underlyingTypeData->typeObject.insert(underlyingTypeData->typeObject.end(), currentSymbol.typeObject.begin(), currentSymbol.typeObject.end());
-
-                if (functionParameters->endIndex + 1 < tokenVector.size() and tokenVector[functionParameters->endIndex + 1].Type == openCurlyBracket) {
-                    std::cout << "function definition" << std::endl;
-
-                    identifierNode->type = syntax_type::function_definition;
-                    parse_prefix_modifiers(identifierNode, prefixPosition, start, currentSymbol);
-
-                    currentSymbol.destinationNode = identifierNode;
-                    AST_NODE* functionBody = new AST_NODE;
-
-                    functionBody->parent = identifierNode;
-                    functionBody->type = syntax_type::scope_block;
-                    identifierNode->branches.push_back(functionBody);
-                    functionBody->index = functionParameters->endIndex + 1; //start {
-                    functionBody->endIndex = *(size_t*)tokenVector[functionBody->index].value; //end }
-                    identifierNode->endIndex = functionBody->endIndex;
-
-                    functionBody->value = symbolTableInfo->createFunctionScope();
-                    parse_block(functionBody);
-                    symbolTableInfo->exitScope();
-
-                    position = identifierNode->endIndex;
-
-
-                    symbol_data* prototypeDeclaration = symbolTableInfo->getIdentifier(identifierNode->key);
-                    if (prototypeDeclaration != nullptr) { //if there was a previous forwards declaration
-                        if (!(prototypeDeclaration->underlyingType->typeObject == underlyingTypeData->typeObject and
-                            prototypeDeclaration->underlyingType->underlyingType == underlyingTypeData->underlyingType)) {
-                            std::cout << "err, discrepancy between return type of function definition and declaration at: " << position << std::endl;
-                        }
-                        else {
-                            AST_NODE* prototypeParameters = prototypeDeclaration->arraySizes[0];
-
-                            if (prototypeParameters->branches.size() == functionParameters->branches.size()) {
-                                bool discrepancy = false;
-                                for (size_t i = 0; i < prototypeParameters->branches.size() and !discrepancy; i++) {
-                                    AST_NODE* prototypeBranch = prototypeParameters->branches[i];
-                                    AST_NODE* definitionBranch = functionParameters->branches[i];
-
-                                    symbol_data* prototypeDeclaratorData = symbolTableInfo->getIdentifier(prototypeBranch->key);
-                                    symbol_data* definitionDeclaratorData = symbolTableInfo->getIdentifier(definitionBranch->key);
-
-                                    symbol_data* definitionDeclaratandData = symbolTableInfo->getIdentifier(definitionBranch->branches[0]->key);
-                                    symbol_data* prototypeDeclaratandData = symbolTableInfo->getIdentifier(prototypeBranch->branches[0]->key);
-
-                                    if (not ((prototypeDeclaratorData->typeObject == definitionDeclaratorData->typeObject //checks if the types for the parameters are all the same
-                                        and prototypeDeclaratorData->underlyingType == definitionDeclaratorData->underlyingType) //if there is a descrepancy then the flag is set to true
-                                        and (definitionDeclaratandData->typeObject == prototypeDeclaratandData->typeObject
-                                            and definitionDeclaratandData->underlyingType == prototypeDeclaratandData->underlyingType))) {
-                                        discrepancy = true;
-                                    }
-                                }
-                                if (discrepancy) std::cout << "err, discrepancy between return type of function definition and declaration at: " << position << std::endl;
-                            }
-                            else {
-                                std::cout << "err, discrepancy between return type of function definition and declaration at: " << position << std::endl;
-                            }
-                        }
-                    }
-                    else {
-                        symbol_data* definitonData = symbolTableInfo->declareFunction(identifierNode->key);
-                        definitonData->underlyingType = underlyingTypeData;
-                        definitonData->arraySizes.push_back(functionParameters);
-                    }
-
-
-                    return position;
-                }
-                else {
-
-                    std::cout << "function declaration" << std::endl;
-                    identifierNode->type = syntax_type::function_declaration;
-                    identifierNode->endIndex = functionParameters->endIndex;
-                    position = identifierNode->endIndex;
-                }
-            }
-            else if (tokenVector[position].Type == equals or tokenVector[position].Type == comma or tokenVector[position].Type == eol) {
-                key_pair pair;
-                pair.memberName = identifierNode->key;
-                pair.unnamedKey = symbolTableInfo->generateUnnamedKey();
-                outVector.push_back(pair);
-
-                parse_prefix_modifiers(identifierNode, prefixPosition, start, currentSymbol);
-                currentSymbol.underlyingType = symbolTableInfo->getIdentifier(declaration_node->key);
-                currentSymbol.type = symbol_type::Variable;
-                symbolTableInfo->declareIdentifier(pair.unnamedKey, currentSymbol);
-                return position;
-            }
-        }
-        key_pair pair;
-        pair.memberName = identifierNode->key;
-        pair.unnamedKey = symbolTableInfo->generateUnnamedKey();
-        outVector.push_back(pair);
-        
-        parse_prefix_modifiers(identifierNode, prefixPosition, start, currentSymbol);
-        currentSymbol.underlyingType = symbolTableInfo->getIdentifier(declaration_node->key);
-        currentSymbol.type = symbol_type::Variable;
-        symbolTableInfo->declareIdentifier(pair.unnamedKey, currentSymbol);
-        return (size_t)0;
-        };
-    bool lastIsAssignment = false;
-    size_t position = startIndex;
-    for (; position < endIndex; position++) { //change the equals to be per identifier
-        token* currentToken = &tokenVector[position];
-        switch (currentToken->Type) {
-        case openParenthesis:
-            position = *(size_t*)currentToken->value;
-        case comma:
-            if (lastIsAssignment) {
-                if (!(declaration_node->branches.empty())) {
-                    AST_NODE* identifierNode = declaration_node->branches.back();
-                    AST_NODE* value = parse_expression(start - 1, position);
-                    identifierNode->branches.push_back(value);
-                    value->parent = identifierNode;
-                    identifierNode->endIndex = value->endIndex;
-                    lastIsAssignment = false;
-                }
-                else {
-                    std::cout << "err missing identifier at: " << position << std::endl;
-                }
-            }
-            else {
-                std::cout << "err missing identifier at: " << position << std::endl;
-            }
-            start = position + 1;
-            break;
-        case variable: {
-            AST_NODE* identifierNode = new AST_NODE;
-            token* identifierToken = &tokenVector[position];
-
-            declaration_node->branches.push_back(identifierNode);
-            identifierNode->parent = declaration_node;
-            identifierNode->key = std::string((char*)identifierToken->value, identifierToken->size);
-            identifierNode->index = position;
-            identifierNode->endIndex = position;
-            size_t newPosition = parse_postfix_modifiers(identifierNode, start);
-            std::cout << identifierNode->key << " : " << start << " : " << newPosition << std::endl;
-
-            if (identifierNode->type == syntax_type::null_type) {
-                identifierNode->type = syntax_type::identifier;
-            }
-
-            if (newPosition == 0) {
-                declaration_node->endIndex = identifierNode->endIndex;
-                goto end;
-            }
-            else {
-                declaration_node->endIndex = newPosition;
-                identifierNode->endIndex = newPosition;
-
-                position = newPosition;
-                start = position + 1;
-
-                if (tokenVector[newPosition].Type == equals) {
-
-                    size_t expressionEndIndex = newPosition;
-                    for (size_t layers = 0; expressionEndIndex < endIndex; expressionEndIndex++) {
-                        switch (tokenVector[newPosition].Type) {
-                        case openBracket:
-                        case openCurlyBracket:
-                        case openParenthesis:
-                            layers++;
-                            break;
-                        case closeBracket:
-                        case closeCurlyBracket:
-                        case closeParenthesis:
-                            if (layers) layers--;
-                            else std::cout << "err expected matching parenthesis within expression at: " << expressionEndIndex << std::endl;
-                            break;
-                        case comma:
-                            if (layers) break;
-                            else goto found;
-                        }
-                    }
-                found:
-                    AST_NODE* identifierNode = declaration_node->branches.back();
-                    AST_NODE* value = parse_expression(start - 1, expressionEndIndex);
-                    identifierNode->branches.push_back(value);
-                    value->parent = identifierNode;
-                    identifierNode->endIndex = value->endIndex;
-                    declaration_node->endIndex = identifierNode->endIndex;
-
-                    position = identifierNode->endIndex;
-                    start = position + 1;
-                }
-                else if (tokenVector[newPosition].Type == eol) goto end;
-            }
-        }
-                     break;
-        case equals: //supposed to be found in the postfix parser
-            std::cout << "err missing identifier at: " << position << std::endl;
-            break;
-        }
-    }
-end:
-    if (declaration_node->branches.empty()) {
-        std::cout << "err empty declaration at: " << declaration_node->index << std::endl;
-    }
-    else {
-        if (lastIsAssignment) {
-            AST_NODE* identifierNode = declaration_node->branches.back();
-            AST_NODE* value = parse_expression(start - 1, position);
-            identifierNode->branches.push_back(value);
-            value->parent = identifierNode;
-            identifierNode->endIndex = value->endIndex;
-            declaration_node->endIndex = identifierNode->endIndex;
-        }
-    }
-}
-
 
 size_t parse_parameter_declaration_identifier(size_t endIndex, AST_NODE* declarationSpecifierNode) { //declaration_node->endIndex should be the end of the underlying type
         
         auto parse_prefix_modifiers = [](AST_NODE* identifierNode, size_t inputPosition, size_t start, symbol_data& currentSymbol) {
             for (size_t position = inputPosition; --position > start - 1;) { //prefix operators
-                if (tokenVector[position].Type == asterisk) currentSymbol.typeObject.push_back(baseType::_pointer);
+                if (tokenVector[position].Type == multiplication) currentSymbol.typeObject.push_back(baseType::_pointer);
             }
         };
 
@@ -2081,7 +1821,7 @@ void parse_struct_definition(AST_NODE* structNode, size_t start) {
 
         std::vector<key_pair> pairs;
 
-        parse_declaration_identifiers_with_unnammed_keys(structNode->endIndex, declarationSpecifierNode, pairs);
+        parse_declaration_identifiers(structNode->endIndex, declarationSpecifierNode, &pairs, true);
         for (size_t it = 0; it < pairs.size(); it++) {
             key_pair pair = pairs[it];
             if (structData->memberKeyTable.find(pair.memberName) == structData->memberKeyTable.end()) {
