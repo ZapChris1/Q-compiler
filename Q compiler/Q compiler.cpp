@@ -410,8 +410,6 @@ enum syntax_type {
     array_size_specifier,
     grammar_statement,
     scope_block,
-    single_line,
-    single_line_with_scope,
     identifier,
     struct_definition,
     struct_declaration,
@@ -497,8 +495,6 @@ std::string syntax_type_to_string(syntax_type type)
     case syntax_type::array_size_specifier: return "array_size_specifier";
     case syntax_type::grammar_statement: return "grammar_statement";
     case syntax_type::scope_block: return "scope_block";
-    case syntax_type::single_line: return "single_line";
-    case syntax_type::single_line_with_scope: return "single_line_with_scope";
     case syntax_type::identifier: return "identifier";
     case syntax_type::struct_definition: return "struct_definition";
     case syntax_type::struct_declaration: return "struct_declaration";
@@ -546,6 +542,7 @@ struct symbol_data {
     std::vector<AST_NODE*> arraySizes; //ptr to the part of the AST where the expression for the size(s) is (also used for function parameters by pointing to the parameter_definition)
     std::unordered_map<std::string, std::string> memberKeyTable; //used for structs and possibly unions
     symbol_type type = symbol_type::Void;
+    bool defined = false;
 };
 
 
@@ -1946,6 +1943,7 @@ void parse_block(AST_NODE* inputNode) { //inputNode->index is ( //endIndex is )
         }
     };
 
+
     for (size_t i = inputNode->index + 1; i < inputNode->endIndex; i++) { //endIndex is the )
         token* currentToken = &tokenVector[i];
         std::cout << "parsing token: " << i << "  with type: " << currentToken->Type << std::endl;
@@ -2027,35 +2025,77 @@ void parse_block(AST_NODE* inputNode) { //inputNode->index is ( //endIndex is )
             goto expression_case;
             }
         case type::structType:
-            if (i + 1 < tokenVector.size() and tokenVector[i + 1].Type == type::variable) {
+            if (i + 1 < tokenVector.size()) {
+                std::string key;
+                if (tokenVector[i + 1].Type == type::variable) {
+                    token* identifierToken = &tokenVector[i + 1];
+                    key = std::string((char*)identifierToken->value, identifierToken->size);
+                }
+                else if (tokenVector[i + 1].Type == type::openBracket) {
+                    key = symbolTableInfo->generateUnnamedKey();
+                }
+                else {
+                    std::cout << "err, expected identifier or {} at: " << i + 1 << std::endl;
+                }
+
+                
                 AST_NODE* structNode = new AST_NODE;
                 structNode->index = i;
                 structNode->parent = inputNode;
                 inputNode->branches.push_back(structNode);
 
-
-                token* identifierToken = &tokenVector[i + 1];
-                std::string key((char*)identifierToken->value, identifierToken->size);
                 symbol_data* data = symbolTableInfo->declareType(key);
-                assert(data != nullptr);
-                if (data == nullptr) {
-                    std::cout << "err creating struct data at: " << i << std::endl;
+                if (data == nullptr and i + 2 < tokenVector.size()) {
+                    data = symbolTableInfo->getIdentifier(key);
+                }
+
+                if (i + 2 < tokenVector.size() and tokenVector[i + 2].Type == openCurlyBracket) { //definition
+                    if (data->defined) {
+                        std::cout << "err, cannot redefine existing struct: " << structNode->key << std::endl;
+                    }
+                    structNode->type = syntax_type::struct_definition;
+                    structNode->key = key;
+                    data->destinationNode = structNode;
+                    structNode->endIndex = *(size_t*)tokenVector[i + 2].value;
+                    data->defined = true;
+                    parse_struct_definition(structNode, i + 2);
                 }
                 else {
-                    if (i + 2 < tokenVector.size() and tokenVector[i + 2].Type == openCurlyBracket) { //definition
-                        structNode->type = syntax_type::struct_definition;
-                        structNode->key = key;
-                        data->destinationNode = structNode;
-                        structNode->endIndex = *(size_t*)tokenVector[i + 2].value;
-                        parse_struct_definition(structNode, i + 2);
-                    }
-                    else {
-                        structNode->endIndex = i + 1;
-                        structNode->type = syntax_type::struct_declaration;
-                    }
+                    structNode->key = key;
+                    structNode->endIndex = i + 1;
+                    structNode->type = syntax_type::struct_declaration;
                 }
 
                 i = structNode->endIndex;
+
+                if (i + 1 < tokenVector.size() and tokenVector[i + 1].Type != type::eol) { //add check for if the struct has been completed
+                    parse_declaration_identifiers(inputNode->endIndex, structNode); //add a semantic check to ensure struct objects cannot be made before definition (ptrs to an undefined but declared struct is allowed)
+                    
+                    if (not data->defined) {
+                        for (size_t it = 0; it < structNode->branches.size(); it++) { //checks to see if all declared identifiers are objects or pointers
+                            AST_NODE* currentNode = structNode->branches[it];
+                            symbol_data* currentData = symbolTableInfo->getIdentifier(currentNode->key);
+                            assert(currentData != nullptr);
+                            for (size_t specifierIt = 0; specifierIt < currentData->typeObject.size(); specifierIt++) {
+                                if (currentData->typeObject[specifierIt] == baseType::_pointer or currentData->typeObject[specifierIt] == baseType::_array) goto isPtr;
+                            }
+                            std::cout << "err, cannot declare a struct object when struct internals are unknown, err at: " << i << std::endl;
+                            break;
+                        isPtr:
+                        }
+                    }
+                    
+                    if (structNode->parent == inputNode) { //if it was a variable skip to the end of the declaration
+                        i = structNode->endIndex;
+                        if (i + 1 > tokenVector.size() and tokenVector[i + 1].Type == eol) {
+                            i++;
+                        }
+                    }
+                    else {
+                        std::cout << "err, function declaration cannot follow a struct definition: " << structNode->endIndex << std::endl;
+                    }
+                }
+                else if (i + 1 >= tokenVector.size()) std::cout << "err, incomplete struct definition at: " << structNode->endIndex << std::endl;
             }
             else {
                 std::cout << "err, expected a identifer for the struct name at: " << i << std::endl;
@@ -2212,7 +2252,6 @@ void recursive_parse(AST_NODE* inputNode) {
             }
             else { //single statement
                 inputNode->endIndex = inputNode->parent->parent->endIndex;
-                inputNode->type = syntax_type::single_line;
                 parse_single_statement(inputNode, inputNode->index, inputNode->parent->endIndex);
             }
             break;
@@ -2221,9 +2260,6 @@ void recursive_parse(AST_NODE* inputNode) {
             parse_block(inputNode);
             symbolTableInfo->exitScope();
             //implement later
-            break;
-        case single_line:
-            parse_single_statement(inputNode, inputNode->index, inputNode->parent->endIndex);
             break;
         case goto_statement: {
             token* labelToken = &tokenVector[position + 1];
