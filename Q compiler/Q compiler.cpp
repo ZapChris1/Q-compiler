@@ -516,8 +516,6 @@ struct AST_NODE { //live on the heap(ptrs to them are in the branches vector) (w
     std::vector<AST_NODE*> branches;
 };
 
-void recursive_parse(AST_NODE* inputNode); //prototype
-
 struct token {
     void* value = nullptr; //malloced, this will have to be freed during deconstruction of the AST 
     AST_NODE* parent = nullptr;
@@ -918,6 +916,17 @@ AST_NODE* parse_expression(AST_NODE* inputNode) { //assuming index is '(' and en
 }
 
 AST_NODE* parse_declaration_specifier(size_t position, size_t endIndex); //forward dec
+AST_NODE* parse_condition(AST_NODE* parentNode, size_t index);
+AST_NODE* parse_statement_body(AST_NODE* parentNode, size_t index);
+void parse_if_statement(AST_NODE* inputNode);
+void parse_switch_statement(AST_NODE* inputNode);
+void parse_for_loop(AST_NODE* inputNode);
+void parse_goto_statement(AST_NODE* inputNode);
+void parse_case_statement(AST_NODE* inputNode);
+void parse_grammar_statement(AST_NODE* inputNode);
+void parse_parameter_declaration(AST_NODE* inputNode);
+void parse_array_size_specifier(AST_NODE* inputNode);
+void parse_for_loop_parenthesis(AST_NODE* inputNode);
 
 void parse_parenthesis_in_expression(AST_NODE* parenthesisNode) {
     size_t index = parenthesisNode->index + 1;
@@ -986,7 +995,6 @@ void parse_parenthesis_in_expression(AST_NODE* parenthesisNode) {
         break;
     }
 }
-
 
 void parse_arguments(AST_NODE* inputNode) { //assuming index is '(' and endindex is ')'
     size_t lastCommaIndex = inputNode->index + 1;
@@ -1425,7 +1433,7 @@ void parse_declaration_identifiers(size_t endIndex, AST_NODE* declaration_node, 
                 arraySizeExpression->index = position; //[ token
                 arraySizeExpression->endIndex = *(size_t*)tokenVector[position].value; //] token
                 position = arraySizeExpression->endIndex;
-                recursive_parse(arraySizeExpression); //add logic for getting the size and etc of the array (for multi dim arrays)
+                parse_array_size_specifier(arraySizeExpression); //add logic for getting the size and etc of the array (for multi dim arrays)
                 currentSymbol.arraySizes.push_back(arraySizeExpression);
                 identifierNode->endIndex = arraySizeExpression->endIndex;
             } else if (tokenVector[position].Type == closeParenthesis) {
@@ -1443,7 +1451,7 @@ void parse_declaration_identifiers(size_t endIndex, AST_NODE* declaration_node, 
                     functionParameters->index = position; //start (
                     functionParameters->endIndex = *(size_t*)tokenVector[functionParameters->index].value; //end )
                     identifierNode->branches.push_back(functionParameters);
-                    recursive_parse(functionParameters);
+                    parse_parameter_declaration(functionParameters);
                     identifierNode->endIndex = functionParameters->endIndex;
                     position = functionParameters->endIndex;
                     continue;
@@ -1464,7 +1472,7 @@ void parse_declaration_identifiers(size_t endIndex, AST_NODE* declaration_node, 
                 functionParameters->index = position; //start (
                 functionParameters->endIndex = *(size_t*)tokenVector[functionParameters->index].value; //end )
                 identifierNode->branches.push_back(functionParameters);
-                recursive_parse(functionParameters);
+                parse_parameter_declaration(functionParameters);
 
                 symbol_data* underlyingTypeData = symbolTableInfo->getIdentifier(declaration_node->key);
                 underlyingTypeData->typeObject.insert(underlyingTypeData->typeObject.end(), currentSymbol.typeObject.begin(), currentSymbol.typeObject.end());
@@ -1729,7 +1737,7 @@ size_t parse_parameter_declaration_identifier(size_t endIndex, AST_NODE* declara
                     arraySizeExpression->index = position; //[ token
                     arraySizeExpression->endIndex = *(size_t*)tokenVector[position].value; //] token
                     position = arraySizeExpression->endIndex;
-                    recursive_parse(arraySizeExpression);
+                    parse_array_size_specifier(arraySizeExpression);
                     currentSymbol.arraySizes.push_back(arraySizeExpression);
                 }
                 else if (tokenVector[position].Type == closeParenthesis) {
@@ -1836,14 +1844,13 @@ void parse_struct_definition(AST_NODE* structNode, size_t start) {
 void parse_single_statement(AST_NODE* inputNode, size_t firstIndex, size_t end) {
     std::cout << "parsing block!" << std::endl;
 
-    auto parse_control_flow_statement = [&inputNode, firstIndex](const syntax_type statementType) {
+    auto prepare_control_flow_node = [&inputNode, firstIndex](const syntax_type statementType) {
         AST_NODE* newNode = new AST_NODE();
         newNode->type = statementType;
         newNode->parent = inputNode;
         newNode->index = firstIndex;
         inputNode->branches.push_back(newNode);
-        recursive_parse(newNode);
-        inputNode->endIndex = newNode->endIndex;
+        return newNode;
     };
 
     auto parse_declaration = [&inputNode]() {
@@ -1861,23 +1868,43 @@ void parse_single_statement(AST_NODE* inputNode, size_t firstIndex, size_t end) 
     case eol:
         break; //ignore these tokens because they mean nothing alone
     case ifStatement:
-        parse_control_flow_statement(syntax_type::if_statement);
+    {
+        AST_NODE* currentNode = prepare_control_flow_node(syntax_type::if_statement);
+        parse_if_statement(currentNode);
+        inputNode->endIndex = currentNode->endIndex;
         break;
+    }
     case switchStatement:
-        parse_control_flow_statement(syntax_type::switch_statement);
+    {
+        AST_NODE* currentNode = prepare_control_flow_node(syntax_type::switch_statement);
+        parse_switch_statement(currentNode);
+        inputNode->endIndex = currentNode->endIndex;
         break;
+    }
     case breakStatement:
-        parse_control_flow_statement(syntax_type::break_statement);
+        assert(false); //add support in the future
         break;
     case gotoStatement:
-        parse_control_flow_statement(syntax_type::goto_statement);
+    {
+        AST_NODE* currentNode = prepare_control_flow_node(syntax_type::goto_statement);
+        parse_goto_statement(currentNode);
+        inputNode->endIndex = currentNode->endIndex;
         break;
+    }
     case forStatement:
-        parse_control_flow_statement(syntax_type::for_loop);
+    {
+        AST_NODE* currentNode = prepare_control_flow_node(syntax_type::for_loop);
+        parse_for_loop(currentNode);
+        inputNode->endIndex = currentNode->endIndex;
         break;
+    }
     case caseStatement:
-        parse_control_flow_statement(syntax_type::case_statement);
+    {
+        AST_NODE* currentNode = prepare_control_flow_node(syntax_type::case_statement);
+        parse_case_statement(currentNode);
+        inputNode->endIndex = currentNode->endIndex;
         break;
+    }
     case variable: {
         std::string key((char*)currentToken->value, currentToken->size);
         std::cout << "currentToken size: " << key << std::endl;
@@ -1902,7 +1929,7 @@ void parse_single_statement(AST_NODE* inputNode, size_t firstIndex, size_t end) 
             destinationNode->parent = labelNode;
             destinationNode->type = syntax_type::grammar_statement;
             labelNode->branches.push_back(destinationNode);
-            recursive_parse(destinationNode);
+            parse_grammar_statement(destinationNode);
             labelNode->endIndex = destinationNode->endIndex; //tightened post bounds check
 
             data.destinationNode = labelNode;
@@ -1962,15 +1989,14 @@ void parse_single_statement(AST_NODE* inputNode, size_t firstIndex, size_t end) 
 
 void parse_block(AST_NODE* inputNode) { //inputNode->index is ( //endIndex is )
     std::cout << "parsing block!" << std::endl;
-    
-    auto parse_control_flow_statement = [&inputNode](const syntax_type statementType, size_t& i) {
+
+    auto prepare_control_flow_node = [&inputNode](const syntax_type statementType, size_t i) {
         AST_NODE* newNode = new AST_NODE();
         newNode->type = statementType;
         newNode->parent = inputNode;
         newNode->index = i;
         inputNode->branches.push_back(newNode);
-        recursive_parse(newNode);
-        i = newNode->endIndex;
+        return newNode;
     };
 
     auto parse_declaration = [&inputNode](size_t& i) {
@@ -2000,23 +2026,43 @@ void parse_block(AST_NODE* inputNode) { //inputNode->index is ( //endIndex is )
         case colon:
             break; //ignore these tokens because they mean nothing alone
         case ifStatement:
-            parse_control_flow_statement(syntax_type::if_statement, i);
+        {
+            AST_NODE* currentNode = prepare_control_flow_node(syntax_type::if_statement, i);
+            parse_if_statement(currentNode);
+            i = currentNode->endIndex;
             break;
+        }
         case switchStatement:
-            parse_control_flow_statement(syntax_type::switch_statement, i);
+        {
+            AST_NODE* currentNode = prepare_control_flow_node(syntax_type::switch_statement, i);
+            parse_switch_statement(currentNode);
+            i = currentNode->endIndex;
             break;
+        }
         case breakStatement:
-            parse_control_flow_statement(syntax_type::break_statement, i);
+            assert(false); //add support in the future
             break;
         case gotoStatement:
-            parse_control_flow_statement(syntax_type::goto_statement, i);
+        {
+            AST_NODE* currentNode = prepare_control_flow_node(syntax_type::goto_statement, i);
+            parse_goto_statement(currentNode);
+            i = currentNode->endIndex;
             break;
+        }
         case forStatement:
-            parse_control_flow_statement(syntax_type::for_loop, i);
+        {
+            AST_NODE* currentNode = prepare_control_flow_node(syntax_type::for_loop, i);
+            parse_for_loop(currentNode);
+            i = currentNode->endIndex;
             break;
+        }
         case caseStatement:
-            parse_control_flow_statement(syntax_type::case_statement, i);
+        {
+            AST_NODE* currentNode = prepare_control_flow_node(syntax_type::case_statement, i);
+            parse_case_statement(currentNode);
+            i = currentNode->endIndex;
             break;
+        }
         case variable: {
             std::string key((char*)currentToken->value, currentToken->size);
             std::cout << "currentToken size: " << key << std::endl;
@@ -2041,7 +2087,7 @@ void parse_block(AST_NODE* inputNode) { //inputNode->index is ( //endIndex is )
                 destinationNode->parent = labelNode;
                 destinationNode->type = syntax_type::grammar_statement;
                 labelNode->branches.push_back(destinationNode);
-                recursive_parse(destinationNode);
+                parse_grammar_statement(destinationNode);
                 labelNode->endIndex = destinationNode->endIndex; //tightened post bounds check
 
                 data.destinationNode = labelNode;
@@ -2255,171 +2301,152 @@ void parse_block(AST_NODE* inputNode) { //inputNode->index is ( //endIndex is )
     }
 }
 
-void recursive_parse(AST_NODE* inputNode) {
+AST_NODE* parse_condition(AST_NODE* parentNode, size_t index) {
+    token* conditionToken = &tokenVector[index];
+    assert(conditionToken->Type == openParenthesis);
+    if (conditionToken->Type == openParenthesis) {
+        AST_NODE* conditionNode = new AST_NODE;
+        conditionNode->type = syntax_type::condition;
+        conditionNode->index = index;
+        conditionNode->endIndex = *(size_t*)conditionToken->value;
+        conditionNode->parent = parentNode;
+        parse_expression(conditionNode);
+        parentNode->branches.push_back(conditionNode);
+        return conditionNode;
+    }
+    else {
+        std::cout << "err, expected ( at: " << index << std::endl;
+    }
+    return nullptr;
+}
+
+AST_NODE* parse_statement_body(AST_NODE* parentNode, size_t index) {
+    AST_NODE* bodyNode = new AST_NODE;
+    bodyNode->index = index;
+    bodyNode->parent = parentNode;
+    bodyNode->type = syntax_type::grammar_statement; //single line vs scope block is handled here
+    parentNode->branches.push_back(bodyNode);
+    parse_grammar_statement(bodyNode);
+    return bodyNode;
+}
+
+void parse_if_statement(AST_NODE* inputNode) {
     size_t position = inputNode->index;
-    if (position >= tokenVector.size()) {
-        std::cout << "err attempted to parse outside of range at: " << position << std::endl;
-        assert(false);
+    AST_NODE* conditionNode = parse_condition(inputNode, position + 1);
+    AST_NODE* bodyNode = parse_statement_body(inputNode, conditionNode->endIndex + 1);
+
+    if (bodyNode->endIndex + 1 < tokenVector.size() and tokenVector[bodyNode->endIndex + 1].Type == elseStatement) {
+        AST_NODE* elseNode = new AST_NODE;
+        elseNode->index = bodyNode->endIndex + 1;
+        elseNode->type = syntax_type::else_statement;
+        elseNode->parent = inputNode;
+        inputNode->branches.push_back(elseNode);
+        AST_NODE* elseBodyNode = parse_statement_body(elseNode, elseNode->index + 1);
+        elseNode->endIndex = elseBodyNode->endIndex;
+        inputNode->endIndex = elseNode->endIndex;
     }
-    switch (inputNode->type) {
-    case parameter_declaration:
-            for (size_t i = position + 1; i < inputNode->endIndex; i++) {
-                AST_NODE* declarationSpecifierNode = parse_declaration_specifier(i, inputNode->endIndex);
-                declarationSpecifierNode->parent = inputNode;
-                inputNode->branches.push_back(declarationSpecifierNode);
-                i = declarationSpecifierNode->endIndex + 1;
-                if (i < inputNode->endIndex) {
-                    i = parse_parameter_declaration_identifier(inputNode->endIndex, declarationSpecifierNode);
-                }
-                if (i == 0) break;
-            }
-            break;
-        case condition:
-        case array_size_specifier: //this will be parsed the same way expressions are
+    else {
+        inputNode->endIndex = bodyNode->endIndex;
+    }
+}
+
+void parse_switch_statement(AST_NODE* inputNode) {
+    size_t position = inputNode->index;
+    AST_NODE* conditionNode = parse_condition(inputNode, position + 1);
+    AST_NODE* bodyNode = parse_statement_body(inputNode, conditionNode->endIndex + 1);
+    inputNode->endIndex = bodyNode->endIndex;
+    symbolTableInfo->switchStack.push(inputNode);
+}
+
+void parse_for_loop(AST_NODE* inputNode) {
+    size_t position = inputNode->index;
+    token* parenthesisToken = &tokenVector[position + 1];
+    if (parenthesisToken->Type != openParenthesis) {
+        std::cout << "err, expected parenthesis at: " << position + 1 << std::endl;
+    }
+
+    AST_NODE* parenthesis = new AST_NODE;
+    parenthesis->value = symbolTableInfo->createLocalScope();
+    parenthesis->type = syntax_type::for_loop_parenthesis;
+    parenthesis->index = position + 1;
+    parenthesis->endIndex = *(size_t*)parenthesisToken->value;
+    parenthesis->parent = inputNode;
+    parse_for_loop_parenthesis(parenthesis);
+    inputNode->branches.push_back(parenthesis);
+
+    AST_NODE* bodyNode = parse_statement_body(inputNode, parenthesis->endIndex + 1);
+    inputNode->endIndex = bodyNode->endIndex;
+}
+
+void parse_goto_statement(AST_NODE* inputNode) {
+    size_t position = inputNode->index;
+    token* labelToken = &tokenVector[position + 1];
+    inputNode->key = std::string((char*)labelToken->value, labelToken->size);
+    inputNode->endIndex = position + 1;
+    AST_NODE* bodyNode = parse_statement_body(inputNode, inputNode->endIndex + 1);
+    inputNode->endIndex = bodyNode->endIndex;
+}
+
+void parse_case_statement(AST_NODE* inputNode) {
+    size_t position = inputNode->index;
+    AST_NODE* switchNode = symbolTableInfo->switchStack.top();
+    switchNode->branches.push_back(inputNode);
+    inputNode->parent = switchNode;
+    for (size_t i = position + 1; i < inputNode->parent->endIndex; i++) {
+        if (tokenVector[i].Type == colon) {
+            inputNode->endIndex = i;
             parse_expression(inputNode);
-            break;
-        case switch_statement: {
-            token* conditionToken = &tokenVector[position + 1];
-            AST_NODE* conditionNode = new AST_NODE;
-            conditionNode->type = syntax_type::condition;
-            conditionNode->index = position + 1;
-            conditionNode->endIndex = *(size_t*)conditionToken->value;
-            conditionNode->parent = inputNode;
-            parse_expression(conditionNode);
-            inputNode->branches.push_back(conditionNode);
-
-            AST_NODE* bodyNode = new AST_NODE;
-            bodyNode->index = conditionNode->endIndex + 1;
-            bodyNode->parent = inputNode;
-            bodyNode->type = syntax_type::grammar_statement; //single line vs scope block is handled here
-            inputNode->branches.push_back(bodyNode);
-            recursive_parse(bodyNode);
-
-            inputNode->endIndex = bodyNode->endIndex;
-            symbolTableInfo->switchStack.push(inputNode);
+            goto out;
         }
-            break;
-        case if_statement: {
-            token* conditionToken = &tokenVector[position + 1];
-            AST_NODE* conditionNode = new AST_NODE;
-            conditionNode->type = syntax_type::condition;
-            conditionNode->index = position + 1;
-            conditionNode->endIndex = *(size_t*)conditionToken->value;
-            conditionNode->parent = inputNode;
-            parse_expression(conditionNode);
-            inputNode->branches.push_back(conditionNode);
-
-            AST_NODE* bodyNode = new AST_NODE;
-            bodyNode->index = conditionNode->endIndex + 1;
-            bodyNode->parent = inputNode;
-            bodyNode->type = syntax_type::grammar_statement; //single line vs scope block is handled here
-            inputNode->branches.push_back(bodyNode);
-            recursive_parse(bodyNode);
-
-            if (bodyNode->endIndex + 1 < tokenVector.size() and tokenVector[bodyNode->endIndex + 1].Type == elseStatement) {
-                AST_NODE* elseNode = new AST_NODE;
-                elseNode->index = bodyNode->endIndex + 1;
-                elseNode->type = syntax_type::else_statement;
-                elseNode->parent = inputNode;
-                inputNode->branches.push_back(elseNode);
-                recursive_parse(elseNode);
-                inputNode->endIndex = elseNode->endIndex;
-            }
-            else {
-                inputNode->endIndex = bodyNode->endIndex;
-            }
-        }
-            break;
-        case for_loop: {
-            token* parenthesisToken = &tokenVector[position + 1];
-            if (parenthesisToken->Type != openParenthesis) {
-                std::cout << "err, expected parenthesis at: " << position + 1 << std::endl;
-            }
-
-            AST_NODE* parenthesis = new AST_NODE;
-            parenthesis->value = symbolTableInfo->createLocalScope();
-            parenthesis->type = syntax_type::for_loop_parenthesis;
-            parenthesis->index = position + 1;
-            parenthesis->endIndex = *(size_t*)parenthesisToken->value;
-            parenthesis->parent = inputNode;
-            recursive_parse(parenthesis);
-            inputNode->branches.push_back(parenthesis);
-
-            AST_NODE* bodyNode = new AST_NODE;
-            bodyNode->index = parenthesis->endIndex + 1;
-            bodyNode->parent = inputNode;
-            bodyNode->type = syntax_type::grammar_statement; //single line vs scope block is handled here
-            inputNode->branches.push_back(bodyNode);
-            recursive_parse(bodyNode);
-
-            inputNode->endIndex = bodyNode->endIndex;
-        }
-            break;
-        case for_loop_parenthesis:
-        {
-            token* currentToken = &tokenVector[inputNode->index + 1];
-            if (currentToken->Type == eol) {
-                inputNode->branches.push_back(nullptr);
-            }
-            parse_block(inputNode);
-            //add semantic checks
-            break;
-        }
-        case grammar_statement: {
-            token* currentToken = &tokenVector[position];
-            if (currentToken->Type == openCurlyBracket) {
-                inputNode->endIndex = *(size_t*)currentToken->value;
-                inputNode->type = syntax_type::scope_block;
-                inputNode->value = symbolTableInfo->createLocalScope();
-                parse_block(inputNode);
-                symbolTableInfo->exitScope();
-            }
-            else { //single statement
-                inputNode->endIndex = inputNode->parent->parent->endIndex;
-                parse_single_statement(inputNode, inputNode->index, inputNode->parent->endIndex);
-            }
-            break;
-        }
-        case scope_block:
-            parse_block(inputNode);
-            symbolTableInfo->exitScope();
-            //implement later
-            break;
-        case goto_statement: {
-            token* labelToken = &tokenVector[position + 1];
-            inputNode->key = std::string((char*)labelToken->value, labelToken->size);
-            inputNode->endIndex = position + 1;
-
-            AST_NODE* bodyNode = new AST_NODE;
-            bodyNode->index = inputNode->endIndex + 1;
-            bodyNode->parent = inputNode;
-            bodyNode->type = syntax_type::grammar_statement;
-            inputNode->branches.push_back(bodyNode);
-            recursive_parse(bodyNode);
-        }
-            break;
-        case case_statement: {
-            AST_NODE* switchNode = symbolTableInfo->switchStack.top();
-            switchNode->branches.push_back(inputNode);
-            inputNode->parent = switchNode;
-            for (size_t i = position + 1; i < inputNode->parent->endIndex; i++) {
-                if (tokenVector[i].Type == colon) {
-                    inputNode->endIndex = i;
-                    parse_expression(inputNode);
-                    goto out;
-                }
-            }
-            std::cout << "expected colon at: " << position << std::endl;
-        out:
-            AST_NODE* bodyNode = new AST_NODE;
-            bodyNode->index = inputNode->endIndex;
-            bodyNode->parent = inputNode;
-            bodyNode->type = syntax_type::grammar_statement;
-            inputNode->branches.push_back(bodyNode);
-            recursive_parse(bodyNode);
-        }
-            break;
     }
+    std::cout << "expected colon at: " << position << std::endl;
+out:
+    AST_NODE* bodyNode = parse_statement_body(inputNode, inputNode->endIndex);
+    inputNode->endIndex = bodyNode->endIndex;
+}
+
+void parse_grammar_statement(AST_NODE* inputNode) {
+    size_t position = inputNode->index;
+    token* currentToken = &tokenVector[position];
+    if (currentToken->Type == openCurlyBracket) {
+        inputNode->endIndex = *(size_t*)currentToken->value;
+        inputNode->type = syntax_type::scope_block;
+        inputNode->value = symbolTableInfo->createLocalScope();
+        parse_block(inputNode);
+        symbolTableInfo->exitScope();
+    }
+    else { //single statement
+        inputNode->endIndex = inputNode->parent->parent->endIndex;
+        parse_single_statement(inputNode, inputNode->index, inputNode->parent->endIndex);
+    }
+}
+
+void parse_parameter_declaration(AST_NODE* inputNode) {
+    size_t position = inputNode->index;
+    for (size_t i = position + 1; i < inputNode->endIndex; i++) {
+        AST_NODE* declarationSpecifierNode = parse_declaration_specifier(i, inputNode->endIndex);
+        declarationSpecifierNode->parent = inputNode;
+        inputNode->branches.push_back(declarationSpecifierNode);
+        i = declarationSpecifierNode->endIndex + 1;
+        if (i < inputNode->endIndex) {
+            i = parse_parameter_declaration_identifier(inputNode->endIndex, declarationSpecifierNode);
+        }
+        if (i == 0) break;
+    }
+}
+
+void parse_array_size_specifier(AST_NODE* inputNode) { //may implement semantic checking in the future which is the reason this function exists and isnt just parse_expression
+    parse_expression(inputNode);
+}
+
+void parse_for_loop_parenthesis(AST_NODE* inputNode) { //add semantic checks
+    size_t position = inputNode->index;
+    token* currentToken = &tokenVector[inputNode->index + 1];
+    if (currentToken->Type == eol) {
+        inputNode->branches.push_back(nullptr);
+    }
+    parse_block(inputNode);
+    //add semantic checks
 }
 
 //lexer logic
