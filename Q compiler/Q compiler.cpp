@@ -412,6 +412,7 @@ enum syntax_type {
     grammar_statement,
     scope_block,
     identifier,
+    enum_definition,
     struct_definition,
     struct_declaration,
 };
@@ -497,6 +498,7 @@ std::string syntax_type_to_string(syntax_type type)
     case syntax_type::grammar_statement: return "grammar_statement";
     case syntax_type::scope_block: return "scope_block";
     case syntax_type::identifier: return "identifier";
+    case syntax_type::enum_definition: return "enum_definition";
     case syntax_type::struct_definition: return "struct_definition";
     case syntax_type::struct_declaration: return "struct_declaration";
     default: return "unknown";
@@ -2074,17 +2076,22 @@ void parse_block(AST_NODE* inputNode) { //inputNode->index is ( //endIndex is )
 
                 if (tokenVector[i + 1].Type == type::variable) {
                     token* identifierToken = &tokenVector[i + 1];
-                    key = std::string((char*)identifierToken->value, identifierToken->size);
-                    if (i + 2 < tokenVector.size() and tokenVector[i + 2].Type == type::openBracket) {
+                    if (i + 2 < tokenVector.size() and tokenVector[i + 2].Type == type::openCurlyBracket) {
                         enumNode = new AST_NODE;
+                        enumNode->parent = inputNode;
+                        inputNode->branches.push_back(enumNode);
+                        enumNode->type = syntax_type::enum_definition;
                         enumNode->key = std::string((char*)identifierToken->value, identifierToken->size);
                         enumNode->index = i;
                         enumNode->endIndex = *(size_t*)tokenVector[i + 2].value;
                         start = i + 2;
                     }
                 }
-                else if (tokenVector[i + 1].Type == type::openBracket) {
+                else if (tokenVector[i + 1].Type == type::openCurlyBracket) {
                     enumNode = new AST_NODE;
+                    enumNode->parent = inputNode;
+                    inputNode->branches.push_back(enumNode);
+                    enumNode->type = syntax_type::enum_definition;
                     enumNode->key = symbolTableInfo->generateUnnamedKey();
                     enumNode->index = i;
                     enumNode->endIndex = *(size_t*)tokenVector[i + 1].value;
@@ -2093,35 +2100,44 @@ void parse_block(AST_NODE* inputNode) { //inputNode->index is ( //endIndex is )
                 else {
                     std::cout << "err, expected identifier or {} at: " << i + 1 << std::endl;
                 }
-
                 if (enumNode != nullptr) {
                     symbol_data* data = symbolTableInfo->checkIdentifier(enumNode->key);
                     assert(data == nullptr);
                     if (data == nullptr) {
+                        data = symbolTableInfo->declareType(enumNode->key);
                         data->name = enumNode->key;
-                        data->type = symbol_type::Type;
                         
-                        size_t size = enumNode->endIndex - start;
-                        if ((size - 1) % 2 != 0) std::cout << "err, expected even number of tokens within struct, at: " << start << std::endl;
+                        size_t size = enumNode->endIndex - start - 1;
+                        size += size % 2; //if its uneven (missing comma at the end) make it even
                         size /= 2;
                         data->enumMembers.reserve(size);
                         
-                        for (size_t it = start; it < enumNode->endIndex; it++) {
+                        size_t memberIndex = 0;
+                        size_t it = start + 1;
+                        for (; it < enumNode->endIndex; it++) {
                             token* currentToken = &tokenVector[it];
-                            data->enumMembers[std::string((char*)currentToken->value, currentToken->size)] = it;
+                            if (currentToken->Type == type::comma) continue;
+                            else if (currentToken->Type == type::variable) {
+                                data->enumMembers[std::string((char*)currentToken->value, currentToken->size)] = memberIndex;
+                                memberIndex++;
+                                it++;
+                            }
+                            else {
+                                std::cout << "invalid token inside of enum at: " << it << std::endl;
+                            }
                         }
                     }
                     else {
                         //implement logic for enum forward declaration in the future
                     }
                 }
-
+                i = enumNode->endIndex;
 
             }
             else {
                 std::cout << "err, expected tokens after enum at: " << i << std::endl;
             }
-
+            break;
         case type::structType:
             if (i + 1 < tokenVector.size()) {
                 std::string key;

@@ -1,1 +1,4 @@
-int i, j, k;
+enum Color {
+	he,
+	go,
+}
