@@ -11,6 +11,7 @@
 #include <stack>
 #include <cassert>
 
+bool constexpr ALLOW_FUNCTION_DECLARATIONS_FOLLOWING_STRUCT_DEFINITIONS = false; //disable to adhere to standard, enabling allows struct foo {} func () {}; to create a function returning a foo obj
 
 char constexpr BINDING_POWER_PARENTHESIS = 15; //( //led
 char constexpr BINDING_POWER_BRACKET = 15; //[ //led
@@ -586,6 +587,15 @@ public:
         std::cout << "Couldnt find identifier: " << key << std::endl;
         return nullptr;
     }
+
+    symbol_data* checkIdentifier(std::string key) { //checks for an identifier in the same scope (for determining whether it can be shadowed)
+        std::unordered_map<std::string, symbol_data>* currentTable = tableStack.c[tableStack.size() - 1];
+        if (currentTable->find(key) != currentTable->end()) {
+            return &(tableStack.c[tableStack.size() - 1]->at(key));
+        }
+        return nullptr;
+    }
+
     symbol_data* getLabel(std::string key) {
         for (size_t i = 1; i <= labelTableStack.size(); i++) {
             std::unordered_map<std::string, symbol_data>* currentTable = labelTableStack.c[labelTableStack.size() - i];
@@ -1388,6 +1398,7 @@ void parse_declaration_identifiers(size_t endIndex, AST_NODE* declaration_node, 
                 if (start > declaration_node->endIndex) return true;
             }
         }
+        return false;
     };
     
     auto parse_postfix_modifiers = [&parse_prefix_modifiers, &declaration_node, endIndex, outVector, use_unnamed_keys](AST_NODE* identifierNode, size_t start) {
@@ -1417,6 +1428,7 @@ void parse_declaration_identifiers(size_t endIndex, AST_NODE* declaration_node, 
             } else if (tokenVector[position].Type == closeParenthesis) {
                 if (parse_prefix_modifiers(identifierNode, prefixPosition, *(size_t*)tokenVector[position].value, currentSymbol)) enclosed_ptr = true;
                 prefixPosition = position;
+                identifierNode->endIndex = position;
             } else if (tokenVector[position].Type == openParenthesis) {
 
                 if (enclosed_ptr) {
@@ -1429,6 +1441,8 @@ void parse_declaration_identifiers(size_t endIndex, AST_NODE* declaration_node, 
                     functionParameters->endIndex = *(size_t*)tokenVector[functionParameters->index].value; //end )
                     identifierNode->branches.push_back(functionParameters);
                     recursive_parse(functionParameters);
+                    identifierNode->endIndex = functionParameters->endIndex;
+                    position = functionParameters->endIndex;
                     continue;
                 }
                 else if (not valid_function) {
@@ -1436,7 +1450,7 @@ void parse_declaration_identifiers(size_t endIndex, AST_NODE* declaration_node, 
                 }
                 assert(valid_function);
                 valid_function = false;
-                if (!declaration_node->branches.empty()) {
+                if (not declaration_node->branches.empty()) {
                     std::cout << "err, cannot have multiple declarations with a function declaraton at: " << position << std::endl;
                 }
                 identifierNode->index = declaration_node->index;
@@ -1454,11 +1468,12 @@ void parse_declaration_identifiers(size_t endIndex, AST_NODE* declaration_node, 
 
                 if (functionParameters->endIndex + 1 < tokenVector.size() and tokenVector[functionParameters->endIndex + 1].Type == openCurlyBracket) {
                     std::cout << "function definition" << std::endl;
-
+                    
                     identifierNode->type = syntax_type::function_definition;
                     parse_prefix_modifiers(identifierNode, prefixPosition, start, currentSymbol);
 
                     currentSymbol.destinationNode = identifierNode;
+                    currentSymbol.type = symbol_type::Function;
                     AST_NODE* functionBody = new AST_NODE;
 
                     functionBody->parent = identifierNode;
@@ -1474,8 +1489,12 @@ void parse_declaration_identifiers(size_t endIndex, AST_NODE* declaration_node, 
                     
                     position = identifierNode->endIndex;
                     
-                    
-                    symbol_data* prototypeDeclaration = symbolTableInfo->getIdentifier(identifierNode->key);
+                    std::string key;
+
+                    symbol_data* prototypeDeclaration = nullptr;
+                    if (outVector == nullptr or not use_unnamed_keys) { //there is no need to check for a previous declaration if using unnamed keys
+                        prototypeDeclaration = symbolTableInfo->getIdentifier(identifierNode->key);
+                    }
                     if (prototypeDeclaration != nullptr) { //if there was a previous forwards declaration
                         if (!(prototypeDeclaration->underlyingType->typeObject == underlyingTypeData->typeObject and
                         prototypeDeclaration->underlyingType->underlyingType == underlyingTypeData->underlyingType)) {
@@ -1510,9 +1529,21 @@ void parse_declaration_identifiers(size_t endIndex, AST_NODE* declaration_node, 
                         }
                     }
                     else {
-                        symbol_data* definitonData = symbolTableInfo->declareFunction(identifierNode->key);
-                        definitonData->underlyingType = underlyingTypeData;
-                        definitonData->arraySizes.push_back(functionParameters);
+                        if (outVector != nullptr and use_unnamed_keys) {
+                            key_pair pair;
+                            pair.memberName = identifierNode->key;
+                            pair.unnamedKey = symbolTableInfo->generateUnnamedKey();
+                            outVector->push_back(pair);
+
+                            symbol_data* definitonData = symbolTableInfo->declareFunction(pair.unnamedKey);
+                            definitonData->underlyingType = underlyingTypeData;
+                            definitonData->arraySizes.push_back(functionParameters);
+                        }
+                        else {
+                            symbol_data* definitonData = symbolTableInfo->declareFunction(identifierNode->key);
+                            definitonData->underlyingType = underlyingTypeData;
+                            definitonData->arraySizes.push_back(functionParameters);
+                        }
                     }
 
 
@@ -1530,6 +1561,7 @@ void parse_declaration_identifiers(size_t endIndex, AST_NODE* declaration_node, 
                     key_pair pair;
                     pair.memberName = identifierNode->key;
                     pair.unnamedKey = symbolTableInfo->generateUnnamedKey();
+                    outVector->push_back(pair);
 
                     parse_prefix_modifiers(identifierNode, prefixPosition, start, currentSymbol);
                     currentSymbol.underlyingType = symbolTableInfo->getIdentifier(declaration_node->key);
@@ -1551,6 +1583,7 @@ void parse_declaration_identifiers(size_t endIndex, AST_NODE* declaration_node, 
             key_pair pair;
             pair.memberName = identifierNode->key;
             pair.unnamedKey = symbolTableInfo->generateUnnamedKey();
+            outVector->push_back(pair);
 
             parse_prefix_modifiers(identifierNode, prefixPosition, start, currentSymbol);
             currentSymbol.underlyingType = symbolTableInfo->getIdentifier(declaration_node->key);
@@ -1571,8 +1604,6 @@ void parse_declaration_identifiers(size_t endIndex, AST_NODE* declaration_node, 
     for (; position < endIndex; position++) { //change the equals to be per identifier
         token* currentToken = &tokenVector[position];
         switch (currentToken->Type) {
-        case openParenthesis:
-            position = *(size_t*)currentToken->value;
         case comma:
             if (lastIsAssignment) {
                 if (!(declaration_node->branches.empty())) {
@@ -1614,7 +1645,6 @@ void parse_declaration_identifiers(size_t endIndex, AST_NODE* declaration_node, 
             }
             else {
                 declaration_node->endIndex = newPosition;
-                identifierNode->endIndex = newPosition;
                 
                 position = newPosition;
                 start = position + 1;
@@ -1651,11 +1681,14 @@ void parse_declaration_identifiers(size_t endIndex, AST_NODE* declaration_node, 
                     position = identifierNode->endIndex;
                     start = position + 1;
                 }
-                else if (tokenVector[newPosition].Type == eol) goto end;
+                else if (tokenVector[newPosition].Type == eol) {
+                    position = newPosition - 1;
+                }
             }
         }
             break;
         case eol:
+            position--;
             goto end;
         case equals: //supposed to be found in the postfix parser
             std::cout << "err missing identifier at: " << position << std::endl;
@@ -1663,6 +1696,8 @@ void parse_declaration_identifiers(size_t endIndex, AST_NODE* declaration_node, 
         }
     }
 end:
+    assert(declaration_node->branches.back()->endIndex >= position);
+    if (declaration_node->branches.back()->endIndex < position) std::cout << "err, unused tokens at: " << position << std::endl;
     if (declaration_node->branches.empty()) {
         std::cout << "err empty declaration at: " << declaration_node->index << std::endl;
     }
@@ -1744,7 +1779,12 @@ void parse_struct_definition(AST_NODE* structNode, size_t start) {
         std::vector<key_pair> pairs;
 
         parse_declaration_identifiers(structNode->endIndex, declarationSpecifierNode, &pairs, true);
+        assert(pairs.size() == declarationSpecifierNode->branches.size());
         for (size_t it = 0; it < pairs.size(); it++) {
+            if (declarationSpecifierNode->branches[it]->type == syntax_type::function_declaration or
+                declarationSpecifierNode->branches[it]->type == syntax_type::function_definition) {
+                std::cout << "err, cannot have a function obj inside of a struct, at: " << index << std::endl;
+            }
             key_pair pair = pairs[it];
             if (structData->memberKeyTable.find(pair.memberName) == structData->memberKeyTable.end()) {
                 structData->memberKeyTable[pair.memberName] = pair.unnamedKey;
@@ -2081,19 +2121,29 @@ void parse_block(AST_NODE* inputNode) { //inputNode->index is ( //endIndex is )
                             }
                             std::cout << "err, cannot declare a struct object when struct internals are unknown, err at: " << i << std::endl;
                             break;
-                        isPtr:
+                        isPtr:;
                         }
                     }
                     
-                    if (structNode->parent == inputNode) { //if it was a variable skip to the end of the declaration
-                        i = structNode->endIndex;
-                        if (i + 1 > tokenVector.size() and tokenVector[i + 1].Type == eol) {
-                            i++;
+                    if (not ALLOW_FUNCTION_DECLARATIONS_FOLLOWING_STRUCT_DEFINITIONS) {
+                        for (size_t it = data->memberKeyTable.size(); it < structNode->branches.size(); it++) { //checks to make sure no functions are declared
+                            AST_NODE* currentNode = structNode->branches[it];
+                            if (currentNode->type == syntax_type::function_declaration or currentNode->type == syntax_type::function_definition) std::cout << "err, function declaration cannot follow a struct definition: " << structNode->endIndex << std::endl;
+                            else {
+                                symbol_data* currentData = symbolTableInfo->getIdentifier(currentNode->key);
+                                assert(currentData != nullptr);
+                                for (size_t specifierIt = 0; specifierIt < currentData->typeObject.size(); specifierIt++) {
+                                    if (currentData->typeObject[specifierIt] == baseType::_function) std::cout << "err, function declaration cannot follow a struct definition: " << structNode->endIndex << std::endl;
+                                }
+                            }
                         }
                     }
-                    else {
-                        std::cout << "err, function declaration cannot follow a struct definition: " << structNode->endIndex << std::endl;
+
+                    i = structNode->endIndex;
+                    if (i + 1 > tokenVector.size() and tokenVector[i + 1].Type == eol) {
+                        i++;
                     }
+
                 }
                 else if (i + 1 >= tokenVector.size()) std::cout << "err, incomplete struct definition at: " << structNode->endIndex << std::endl;
             }
