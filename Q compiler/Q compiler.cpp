@@ -542,6 +542,7 @@ struct symbol_data {
     std::vector<baseType> typeObject; //contains info abt the type (doesnt include the identifier or underlying type)
     std::vector<AST_NODE*> arraySizes; //ptr to the part of the AST where the expression for the size(s) is (also used for function parameters by pointing to the parameter_definition)
     std::unordered_map<std::string, std::string> memberKeyTable; //used for structs and possibly unions
+    std::unordered_map<std::string, size_t> enumMembers;
     symbol_type type = symbol_type::Void;
     bool defined = false;
 };
@@ -2066,6 +2067,61 @@ void parse_block(AST_NODE* inputNode) { //inputNode->index is ( //endIndex is )
             //if neither a type nor label then treat it as an expression
             goto expression_case;
             }
+        case type::enumType:
+            if (i + 1 < tokenVector.size()) {
+                AST_NODE* enumNode = nullptr;
+                size_t start = 0;
+
+                if (tokenVector[i + 1].Type == type::variable) {
+                    token* identifierToken = &tokenVector[i + 1];
+                    key = std::string((char*)identifierToken->value, identifierToken->size);
+                    if (i + 2 < tokenVector.size() and tokenVector[i + 2].Type == type::openBracket) {
+                        enumNode = new AST_NODE;
+                        enumNode->key = std::string((char*)identifierToken->value, identifierToken->size);
+                        enumNode->index = i;
+                        enumNode->endIndex = *(size_t*)tokenVector[i + 2].value;
+                        start = i + 2;
+                    }
+                }
+                else if (tokenVector[i + 1].Type == type::openBracket) {
+                    enumNode = new AST_NODE;
+                    enumNode->key = symbolTableInfo->generateUnnamedKey();
+                    enumNode->index = i;
+                    enumNode->endIndex = *(size_t*)tokenVector[i + 1].value;
+                    start = i + 1;
+                }
+                else {
+                    std::cout << "err, expected identifier or {} at: " << i + 1 << std::endl;
+                }
+
+                if (enumNode != nullptr) {
+                    symbol_data* data = symbolTableInfo->checkIdentifier(enumNode->key);
+                    assert(data == nullptr);
+                    if (data == nullptr) {
+                        data->name = enumNode->key;
+                        data->type = symbol_type::Type;
+                        
+                        size_t size = enumNode->endIndex - start;
+                        if ((size - 1) % 2 != 0) std::cout << "err, expected even number of tokens within struct, at: " << start << std::endl;
+                        size /= 2;
+                        data->enumMembers.reserve(size);
+                        
+                        for (size_t it = start; it < enumNode->endIndex; it++) {
+                            token* currentToken = &tokenVector[it];
+                            data->enumMembers[std::string((char*)currentToken->value, currentToken->size)] = it;
+                        }
+                    }
+                    else {
+                        //implement logic for enum forward declaration in the future
+                    }
+                }
+
+
+            }
+            else {
+                std::cout << "err, expected tokens after enum at: " << i << std::endl;
+            }
+
         case type::structType:
             if (i + 1 < tokenVector.size()) {
                 std::string key;
@@ -2150,7 +2206,7 @@ void parse_block(AST_NODE* inputNode) { //inputNode->index is ( //endIndex is )
                 else if (i + 1 >= tokenVector.size()) std::cout << "err, incomplete struct definition at: " << structNode->endIndex << std::endl;
             }
             else {
-                std::cout << "err, expected a identifer for the struct name at: " << i << std::endl;
+                std::cout << "err, expected tokens after struct at: " << i << std::endl;
             }
 
             break;
