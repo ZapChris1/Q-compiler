@@ -1557,6 +1557,8 @@ void parse_declaration_identifiers(size_t endIndex, AST_NODE* declaration_node, 
                 }
             }
             else if (tokenVector[position].Type == equals or tokenVector[position].Type == comma or tokenVector[position].Type == eol) {
+                assert(identifierNode->endIndex == position - 1);
+                if (identifierNode->endIndex < position - 1) std::cout << "err, unused tokens at: " << position << std::endl;
                 if (outVector != nullptr and use_unnamed_keys) {
                     key_pair pair;
                     pair.memberName = identifierNode->key;
