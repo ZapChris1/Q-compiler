@@ -957,7 +957,7 @@ void parse_parenthesis_in_expression(AST_NODE* parenthesisNode) {
     switch (currentToken->Type) {
     case variable: {
         std::string key((char*)currentToken->value, currentToken->size);
-        symbol_data* data = symbolTableInfo->getIdentifier(key);
+        symbol_data* data = symbolTableInfo->checkIdentifier(key);
 
         assert(data != nullptr);
         if (data != nullptr) {
@@ -1440,8 +1440,8 @@ void parse_declaration_identifiers(size_t endIndex, AST_NODE* declaration_node, 
                 if (parse_prefix_modifiers(identifierNode, prefixPosition, *(size_t*)tokenVector[position].value, currentSymbol)) enclosed_ptr = true;
                 prefixPosition = position;
                 identifierNode->endIndex = position;
-            } else if (tokenVector[position].Type == openParenthesis) {
-
+            } 
+            else if (tokenVector[position].Type == openParenthesis) {
                 if (enclosed_ptr) {
                     valid_function = false;
                     currentSymbol.typeObject.push_back(_function);
@@ -1504,7 +1504,7 @@ void parse_declaration_identifiers(size_t endIndex, AST_NODE* declaration_node, 
 
                     symbol_data* prototypeDeclaration = nullptr;
                     if (outVector == nullptr or not use_unnamed_keys) { //there is no need to check for a previous declaration if using unnamed keys
-                        prototypeDeclaration = symbolTableInfo->getIdentifier(identifierNode->key);
+                        prototypeDeclaration = symbolTableInfo->checkIdentifier(identifierNode->key);
                     }
                     if (prototypeDeclaration != nullptr) { //if there was a previous forwards declaration
                         if (!(prototypeDeclaration->underlyingType->typeObject == underlyingTypeData->typeObject and
@@ -1513,25 +1513,8 @@ void parse_declaration_identifiers(size_t endIndex, AST_NODE* declaration_node, 
                         } else {
                             AST_NODE* prototypeParameters = prototypeDeclaration->arraySizes[0];
                             
-                            if (prototypeParameters->branches.size() == functionParameters->branches.size()) {
-                                bool discrepancy = false;
-                                for (size_t i = 0; i < prototypeParameters->branches.size() and !discrepancy; i++) {
-                                    AST_NODE* prototypeBranch = prototypeParameters->branches[i];
-                                    AST_NODE* definitionBranch = functionParameters->branches[i];
-
-                                    symbol_data* prototypeDeclaratorData = symbolTableInfo->getIdentifier(prototypeBranch->key);
-                                    symbol_data* definitionDeclaratorData = symbolTableInfo->getIdentifier(definitionBranch->key);
-                                    
-                                    symbol_data* definitionDeclaratandData = symbolTableInfo->getIdentifier(definitionBranch->branches[0]->key);
-                                    symbol_data* prototypeDeclaratandData = symbolTableInfo->getIdentifier(prototypeBranch->branches[0]->key);
-
-                                    if (not ((prototypeDeclaratorData->typeObject == definitionDeclaratorData->typeObject //checks if the types for the parameters are all the same
-                                        and prototypeDeclaratorData->underlyingType == definitionDeclaratorData->underlyingType) //if there is a descrepancy then the flag is set to true
-                                        and (definitionDeclaratandData->typeObject == prototypeDeclaratandData->typeObject
-                                            and definitionDeclaratandData->underlyingType == prototypeDeclaratandData->underlyingType))) {
-                                        discrepancy = true;
-                                    }
-                                }
+                            if (not prototypeParameters->branches.empty() and prototypeParameters->branches.size() == functionParameters->branches.size()) {
+                                bool discrepancy = check_prototype_parameters(functionParameters->branches[0], prototypeParameters->branches[0]);
                                 if (discrepancy) std::cout << "err, discrepancy between return type of function definition and declaration at: " << position << std::endl;
                             }
                             else {
@@ -1557,7 +1540,7 @@ void parse_declaration_identifiers(size_t endIndex, AST_NODE* declaration_node, 
                         }
                     }
 
-
+                    
                     return position;
                 } else {
                     
@@ -1985,6 +1968,25 @@ void parse_single_statement(AST_NODE* inputNode, size_t firstIndex, size_t end) 
         }
         }
     }
+}
+
+bool check_prototype_parameters(AST_NODE* definitionNode, AST_NODE* declarationNode) { //returns false if they are the same
+    //declarationNode is the forwardly declared node (prototype)
+    //for use in parameters
+    if (declarationNode->branches.size() == definitionNode->branches.size()) {
+        for (size_t i = 0; i < declarationNode->branches.size(); i++) {
+            AST_NODE* currentNodeA = definitionNode->branches[i];
+            AST_NODE* currentNodeB = declarationNode->branches[i];
+            if (currentNodeA->type != currentNodeB->type) return true;
+            symbol_data* dataA = symbolTableInfo->getIdentifier(currentNodeA->key);
+            symbol_data* dataB = symbolTableInfo->getIdentifier(currentNodeB->key);
+            if (dataA->typeObject != dataB->typeObject or dataA->underlyingType != dataB->underlyingType) return true;
+        }
+    }
+    else {
+        return true;
+    }
+    return false;
 }
 
 void parse_block(AST_NODE* inputNode) { //inputNode->index is ( //endIndex is )
