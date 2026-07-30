@@ -104,7 +104,6 @@ enum symbol_type {
     Type //int, structs, classes etc go here
 };
 
-
 enum type {
     unsignedIntLiteral,
     intLiteral,
@@ -191,7 +190,6 @@ enum type {
     orEquals,
     null,
 };
-
 
 char getPriority(type inputType, bool nud) {
     if (nud) {
@@ -548,6 +546,7 @@ struct symbol_data {
     std::unordered_map<std::string, std::string> memberKeyTable; //used for structs and possibly unions
     std::unordered_map<std::string, size_t> enumMembers;
     symbol_type type = symbol_type::Void;
+    size_t size; //in bytes
     bool defined = false;
 };
 
@@ -568,10 +567,13 @@ class symbol_table_info { //struct for ease of use //all heap allocation is hand
 public:
     symbol_table_info() {
         createLocalScope();
-        declareType("int");
         declareVariable("a"); declareVariable("b"); declareVariable("c");
         declareVariable("d"); declareVariable("e"); declareVariable("f");
         declareVariable("g"); declareVariable("h"); declareVariable("i");
+        declareType("long long", 16);
+        declareType("long", 8);
+        declareType("int", 4);
+        declareType("short", 2);
         createFunctionScope();
     }
     ~symbol_table_info() {
@@ -634,6 +636,13 @@ public:
     symbol_data* declareType(std::string key) {
         symbol_data* data = declareIdentifier(key);
         data->type = symbol_type::Type;
+        return data;
+    }
+
+    symbol_data* declareType(std::string key, size_t size) {
+        symbol_data* data = declareIdentifier(key);
+        data->type = symbol_type::Type;
+        data->size = size;
         return data;
     }
 
@@ -1025,6 +1034,16 @@ void parse_arguments(AST_NODE* inputNode) { //assuming index is '(' and endindex
     }
 }
 
+class TypeChecker {
+
+    symbol_data* lastType;
+    symbol_data* currentType;
+
+
+
+
+};
+
 AST_NODE* parse_token(size_t inputIndex, AST_NODE* lastNode, bool nud, size_t end) {
     std::cout << "parsing token" << inputIndex << std::endl;
     token* inputToken = &tokenVector[inputIndex];
@@ -1362,39 +1381,98 @@ AST_NODE* parse_declaration_specifier(size_t position, size_t endIndex) { //inde
     declarationSpecifierNode->key = key;
     symbol_data declarationSpecifierData = *symbolTableInfo->declareIdentifier(key);
     symbol_data* underlyingType = nullptr;
+    
+    bool short_type = false;
+    bool long_type = false;
+    bool long_long_type = false;
+    bool signed_type = false;
+    bool unsigned_type = false;
+
     for (; position < endIndex; position++) {
         token* currentToken = &tokenVector[position];
         switch (currentToken->Type) {
         case variable:
-            underlyingType = (symbolTableInfo->getIdentifier(std::string((char*)currentToken->value, currentToken->size))); goto end;
+        {
+            std::string key((char*)currentToken->value, currentToken->size);
+            if (short_type or long_type) std::cout << "err, type length qualifiers cannot modify" << key << ", at: " << position << std::endl;
+            if (signed_type or unsigned_type) std::cout << "err, sign qualifiers cannot modify" << key << ", at: " << position << std::endl;
+            underlyingType = (symbolTableInfo->getIdentifier(key)); goto end;
+        }
         case booleanType:
+            if (short_type or long_type) std::cout << "err, type length qualifiers cannot modify bool, at: " << position << std::endl;
+            if (signed_type or unsigned_type) std::cout << "err, sign qualifiers cannot modify bool, at: " << position << std::endl;
             underlyingType = (symbolTableInfo->getIdentifier("boolean")); goto end;
         case charType:
+            if (short_type or long_type) std::cout << "err, type length qualifiers cannot modify char, at: " << position << std::endl;
             underlyingType = (symbolTableInfo->getIdentifier("char")); goto end;
         case intType:
-            underlyingType = (symbolTableInfo->getIdentifier("int")); goto end;
+            if (short_type) {
+                underlyingType = symbolTableInfo->getIdentifier("short");
+            }
+            else if (long_long_type) {
+                underlyingType = symbolTableInfo->getIdentifier("long long");
+            }
+            else if (long_type) {
+                underlyingType = symbolTableInfo->getIdentifier("long");
+            }
+            else {
+                underlyingType = symbolTableInfo->getIdentifier("int");
+            }
+            goto end;
         case floatType:
+            if (short_type or long_type) std::cout << "err, type length qualifiers cannot modify float, at: " << position << std::endl;
+            if (signed_type or unsigned_type) std::cout << "err, sign qualifiers cannot modify float, at: " << position << std::endl;
             underlyingType = (symbolTableInfo->getIdentifier("float")); goto end;
         case doubleType:
+            if (short_type or long_long_type) std::cout << "err, short/long long qualifiers cannot modify double, at: " << position << std::endl;
+            if (signed_type or unsigned_type) std::cout << "err, sign qualifiers cannot modify double, at: " << position << std::endl;
             underlyingType = (symbolTableInfo->getIdentifier("double")); goto end;
         case shortType:
+            if (short_type or long_type) std::cout << "err, cannot have multiple type length qualifiers with short, at:" << position << std::endl;
+            short_type = true;
+            goto type_qualifier_check;
         case longType:
+            if (short_type) std::cout << "err, cannot have multiple type length qualifiers with short, at:" << position << std::endl;
+            if (long_long_type) std::cout << "err, can not have more than 2 long qualifiers, at: " << position << std::endl;
+            if (long_type) long_long_type = true;
+            else long_type = true;
+            goto type_qualifier_check;
         case unsignedType:
+            if (signed_type or unsigned_type) std::cout << "err, cannot have multiple signed/unsigned qualifiers, at:" << position << std::endl;
+            else unsigned_type = true;
+            declarationSpecifierData.typeObject.push_back(tokenToBaseType(currentToken->Type));
+            goto type_qualifier_check;
         case signedType:
+            if (signed_type or unsigned_type) std::cout << "err, cannot have multiple signed/unsigned qualifiers, at:" << position << std::endl;
+            else signed_type = true;
+            declarationSpecifierData.typeObject.push_back(tokenToBaseType(currentToken->Type));
+        type_qualifier_check:
+            if (position + 1 < endIndex or tokenVector[position + 1].Type == variable or tokenVector[position + 1].Type == multiplication) {
+                if (short_type) {
+                    underlyingType = symbolTableInfo->getIdentifier("short");
+                }
+                else if (long_long_type) {
+                    underlyingType = symbolTableInfo->getIdentifier("long long");
+                }
+                else if (long_type) {
+                    underlyingType = symbolTableInfo->getIdentifier("long");
+                }
+                else {
+                    underlyingType = symbolTableInfo->getIdentifier("int");
+                }
 
-            if (tokenVector[position + 1].Type == variable or tokenVector[position + 1].Type == multiplication) {
-                declarationSpecifierData.typeObject.push_back(tokenToBaseType(currentToken->Type));
-                underlyingType = symbolTableInfo->getIdentifier("int");
-                if (tokenVector[position + 1].Type == variable) position++;
+                if (position + 1 < endIndex and tokenVector[position + 1].Type == variable) position++;
                 goto end;
             }
+            break;
         default:
-            declarationSpecifierData.typeObject.push_back(tokenToBaseType(currentToken->Type));
+            std::cout << "err, unexpected token in type at, " << position << std::endl;
             break;
         }
     }
     end:
-    if (underlyingType == nullptr) std::cout << "error: no underlying type found at: " << position << std::endl;
+    if (underlyingType == nullptr) std::cout << "err, no underlying type found, at: " << position << std::endl;
+    
     declarationSpecifierData.underlyingType = underlyingType;
     declarationSpecifierNode->endIndex = position;
     return declarationSpecifierNode;
@@ -2648,7 +2726,7 @@ void tokenize(std::string& source, std::vector<bracket_information>& bracketVect
             }
             endOfSymbol = i + 1;
             break;
-        case '.': //add support for structs in the future
+        case '.':
             if (i == 0) break;
             if ((currentType == unsignedIntLiteral or currentType == intLiteral) and (source[i - 1] == '0' or source[i - 1] == '1' or source[i - 1] == '2' or source[i - 1] == '3' or source[i - 1] == '4' or source[i - 1] == '5' or source[i - 1] == '6' or source[i - 1] == '7' or source[i - 1] == '8' or source[i - 1] == '9')) {
                 currentType = floatLiteral;
@@ -2658,7 +2736,7 @@ void tokenize(std::string& source, std::vector<bracket_information>& bracketVect
                 generic_lex(structAccess);
             }
             break;
-        case '-': //add decrement operator with variables in the future
+        case '-':
             if (peek_forwards('=')) {
                 specific_lex(plusEquals);
             } else if (peek_forwards('-')) {
@@ -2669,7 +2747,7 @@ void tokenize(std::string& source, std::vector<bracket_information>& bracketVect
                 specific_lex(subtraction);
             }
             break;
-        case '+': //add increment operator with variables in the future
+        case '+':
         {
             lex_complex_token(
                 {
@@ -2678,19 +2756,19 @@ void tokenize(std::string& source, std::vector<bracket_information>& bracketVect
                 }, type::addition);
             break;
         }
-        case '*': //add struct operator with variables in the future
+        case '*':
             lex_complex_token(
                 {
                     {'=', type::multEquals},
                 }, type::multiplication);
             break;
-        case '/': //add comment support in the future
+        case '/':
             lex_complex_token(
                 {
                     {'=', type::divEquals},
                 }, type::division);
             break;
-        case '%': //add comment support in the future
+        case '%':
             lex_complex_token(
                 {
                     {'=', type::modEquals},
