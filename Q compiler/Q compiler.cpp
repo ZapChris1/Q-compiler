@@ -1034,12 +1034,28 @@ void parse_arguments(AST_NODE* inputNode) { //assuming index is '(' and endindex
     }
 }
 
+//finish later
 class TypeChecker {
 
     symbol_data* lastType;
     symbol_data* currentType;
 
 
+    symbol_data* mathPromotion(symbol_data* underlyingTypeA, symbol_data* underlyingTypeB) {
+        signed char prefered = 0; //1 = A, 2 = B
+        if (underlyingTypeA->type == symbol_type::Type and underlyingTypeB->type == symbol_type::Type) {
+            if (underlyingTypeA->size > underlyingTypeB->size) prefered = 1;
+            else if (underlyingTypeA->size < underlyingTypeB->size) prefered = 2;
+            else {
+                bool unsignedA = false;
+                bool unsignedB = false;
+            }
+        }
+        else {
+            std::cout << "err, " << underlyingTypeA->name << " and/or " << underlyingTypeB->name << " cannot perform arithmetic" << std::endl;
+        }
+
+    }
 
 
 };
