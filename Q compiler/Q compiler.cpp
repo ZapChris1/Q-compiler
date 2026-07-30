@@ -413,6 +413,8 @@ enum syntax_type {
     scope_block,
     identifier,
     enum_definition,
+    union_definition,
+    union_declaration,
     struct_definition,
     struct_declaration,
 };
@@ -499,6 +501,8 @@ std::string syntax_type_to_string(syntax_type type)
     case syntax_type::scope_block: return "scope_block";
     case syntax_type::identifier: return "identifier";
     case syntax_type::enum_definition: return "enum_definition";
+    case syntax_type::union_definition: return "union_definition";
+    case syntax_type::union_declaration: return "union_declaration";
     case syntax_type::struct_definition: return "struct_definition";
     case syntax_type::struct_declaration: return "struct_declaration";
     default: return "unknown";
@@ -1396,6 +1400,25 @@ AST_NODE* parse_declaration_specifier(size_t position, size_t endIndex) { //inde
     return declarationSpecifierNode;
 }
 
+bool check_prototype_parameters(AST_NODE* definitionNode, AST_NODE* declarationNode) { //returns false if they are the same
+    //declarationNode is the forwardly declared node (prototype)
+    //for use in parameters
+    if (declarationNode->branches.size() == definitionNode->branches.size()) {
+        for (size_t i = 0; i < declarationNode->branches.size(); i++) {
+            AST_NODE* currentNodeA = definitionNode->branches[i];
+            AST_NODE* currentNodeB = declarationNode->branches[i];
+            if (currentNodeA->type != currentNodeB->type) return true;
+            symbol_data* dataA = symbolTableInfo->getIdentifier(currentNodeA->key);
+            symbol_data* dataB = symbolTableInfo->getIdentifier(currentNodeB->key);
+            if (dataA->typeObject != dataB->typeObject or dataA->underlyingType != dataB->underlyingType) return true;
+        }
+    }
+    else {
+        return true;
+    }
+    return false;
+}
+
 void parse_declaration_identifiers(size_t endIndex, AST_NODE* declaration_node, std::vector<key_pair>* outVector = nullptr, bool use_unnamed_keys = false) { //inParameters refers to whether this declaration is parameter declaration
     std::cout << "parsing declaration identifiers at!: " << declaration_node->index << std::endl;
     bool typeObjectReady = false;
@@ -1442,10 +1465,29 @@ void parse_declaration_identifiers(size_t endIndex, AST_NODE* declaration_node, 
                 identifierNode->endIndex = position;
             } 
             else if (tokenVector[position].Type == openParenthesis) {
+                AST_NODE* functionParameters;
+                auto check_discrepancies = [&functionParameters](symbol_data* underlyingTypeData, symbol_data* prototypeDeclaration, size_t position) {
+                    if (!(prototypeDeclaration->underlyingType->typeObject == underlyingTypeData->typeObject and
+                        prototypeDeclaration->underlyingType->underlyingType == underlyingTypeData->underlyingType)) {
+                        std::cout << "err, discrepancy between return type of function definition and declaration at: " << position << std::endl;
+                    }
+                    else {
+                        AST_NODE* prototypeParameters = prototypeDeclaration->arraySizes[0];
+
+                        if (not prototypeParameters->branches.empty() and prototypeParameters->branches.size() == functionParameters->branches.size()) {
+                            bool discrepancy = check_prototype_parameters(functionParameters->branches[0], prototypeParameters->branches[0]);
+                            if (discrepancy) std::cout << "err, discrepancy between return type of function definition and declaration at: " << position << std::endl;
+                        }
+                        else {
+                            std::cout << "err, discrepancy between return type of function definition and declaration at: " << position << std::endl;
+                        }
+                    }
+                };
+                
                 if (enclosed_ptr) {
                     valid_function = false;
                     currentSymbol.typeObject.push_back(_function);
-                    AST_NODE* functionParameters = new AST_NODE;
+                    functionParameters = new AST_NODE;
                     functionParameters->parent = identifierNode;
                     functionParameters->type = syntax_type::parameter_declaration; //output specfication for the function
                     functionParameters->index = position; //start (
@@ -1466,7 +1508,7 @@ void parse_declaration_identifiers(size_t endIndex, AST_NODE* declaration_node, 
                 }
                 identifierNode->index = declaration_node->index;
                 currentSymbol.typeObject.push_back(_function);
-                AST_NODE* functionParameters = new AST_NODE;
+                functionParameters = new AST_NODE;
                 functionParameters->parent = identifierNode;
                 functionParameters->type = syntax_type::parameter_declaration; //output specfication for the function
                 functionParameters->index = position; //start (
@@ -1506,47 +1548,48 @@ void parse_declaration_identifiers(size_t endIndex, AST_NODE* declaration_node, 
                     if (outVector == nullptr or not use_unnamed_keys) { //there is no need to check for a previous declaration if using unnamed keys
                         prototypeDeclaration = symbolTableInfo->checkIdentifier(identifierNode->key);
                     }
+
                     if (prototypeDeclaration != nullptr) { //if there was a previous forwards declaration
-                        if (!(prototypeDeclaration->underlyingType->typeObject == underlyingTypeData->typeObject and
-                        prototypeDeclaration->underlyingType->underlyingType == underlyingTypeData->underlyingType)) {
-                            std::cout << "err, discrepancy between return type of function definition and declaration at: " << position << std::endl;
-                        } else {
-                            AST_NODE* prototypeParameters = prototypeDeclaration->arraySizes[0];
-                            
-                            if (not prototypeParameters->branches.empty() and prototypeParameters->branches.size() == functionParameters->branches.size()) {
-                                bool discrepancy = check_prototype_parameters(functionParameters->branches[0], prototypeParameters->branches[0]);
-                                if (discrepancy) std::cout << "err, discrepancy between return type of function definition and declaration at: " << position << std::endl;
-                            }
-                            else {
-                                std::cout << "err, discrepancy between return type of function definition and declaration at: " << position << std::endl;
-                            }
-                        }
+                        if (not prototypeDeclaration->defined) check_discrepancies(underlyingTypeData, prototypeDeclaration, position); //semantic check
+                        else std::cout << "err, overwriting prexisting function defintition, at: " << position << std::endl;
+                        
+                        prototypeDeclaration->defined = true;
+                        prototypeDeclaration->destinationNode = identifierNode;
                     }
-                    else {
+                    else { //first declaration/def
+                        symbol_data* definitonData;
                         if (outVector != nullptr and use_unnamed_keys) {
                             key_pair pair;
                             pair.memberName = identifierNode->key;
                             pair.unnamedKey = symbolTableInfo->generateUnnamedKey();
                             outVector->push_back(pair);
 
-                            symbol_data* definitonData = symbolTableInfo->declareFunction(pair.unnamedKey);
-                            definitonData->underlyingType = underlyingTypeData;
-                            definitonData->arraySizes.push_back(functionParameters);
+                            definitonData = symbolTableInfo->declareFunction(pair.unnamedKey);
                         }
                         else {
-                            symbol_data* definitonData = symbolTableInfo->declareFunction(identifierNode->key);
-                            definitonData->underlyingType = underlyingTypeData;
-                            definitonData->arraySizes.push_back(functionParameters);
+                            definitonData = symbolTableInfo->declareFunction(identifierNode->key);
                         }
+                        definitonData->defined = true;
+                        definitonData->underlyingType = underlyingTypeData;
+                        definitonData->arraySizes.push_back(functionParameters);
+                        definitonData->destinationNode = identifierNode;
                     }
 
                     
                     return position;
-                } else {
-                    
+                } 
+                else { //declaration
+                    symbol_data* prototypeDeclaration = nullptr;
+                    if (outVector == nullptr or not use_unnamed_keys) { //there is no need to check for a previous declaration if using unnamed keys
+                        prototypeDeclaration = symbolTableInfo->checkIdentifier(identifierNode->key);
+                    }
+                    if (prototypeDeclaration != nullptr) { //if there was a previous forwards declaration
+                        check_discrepancies(underlyingTypeData, prototypeDeclaration, position); //semantic check
+                    }
                     std::cout << "function declaration" << std::endl;
                     identifierNode->type = syntax_type::function_declaration;
                     identifierNode->endIndex = functionParameters->endIndex;
+
                     position = identifierNode->endIndex;
                 }
             }
@@ -1565,10 +1608,21 @@ void parse_declaration_identifiers(size_t endIndex, AST_NODE* declaration_node, 
                     symbolTableInfo->declareIdentifier(pair.unnamedKey, currentSymbol);
                 }
                 else {
-                    parse_prefix_modifiers(identifierNode, prefixPosition, start, currentSymbol);
-                    currentSymbol.underlyingType = symbolTableInfo->getIdentifier(declaration_node->key);
-                    currentSymbol.type = symbol_type::Variable;
-                    symbolTableInfo->declareIdentifier(identifierNode->key, currentSymbol);
+                    symbol_data* prototypeDeclaration = symbolTableInfo->checkIdentifier(identifierNode->key);
+                    if (prototypeDeclaration != nullptr) {
+                        if (prototypeDeclaration->defined) {
+
+                        }
+                        else {
+
+                        }
+                    }
+                    else {
+                        parse_prefix_modifiers(identifierNode, prefixPosition, start, currentSymbol);
+                        currentSymbol.underlyingType = symbolTableInfo->getIdentifier(declaration_node->key);
+                        currentSymbol.type = symbol_type::Variable;
+                        symbolTableInfo->declareIdentifier(identifierNode->key, currentSymbol);
+                    }
                 }
                 
                 return position;
@@ -1763,7 +1817,7 @@ size_t parse_parameter_declaration_identifier(size_t endIndex, AST_NODE* declara
         return endIndex;
     }
 
-void parse_struct_definition(AST_NODE* structNode, size_t start) {
+void parse_struct_definition(AST_NODE* structNode, size_t start) { //can also be used for unions
     symbol_data* structData = symbolTableInfo->getIdentifier(structNode->key);
 
     auto parse_as_declaration = [&structNode, structData](size_t index) {
@@ -1970,25 +2024,6 @@ void parse_single_statement(AST_NODE* inputNode, size_t firstIndex, size_t end) 
     }
 }
 
-bool check_prototype_parameters(AST_NODE* definitionNode, AST_NODE* declarationNode) { //returns false if they are the same
-    //declarationNode is the forwardly declared node (prototype)
-    //for use in parameters
-    if (declarationNode->branches.size() == definitionNode->branches.size()) {
-        for (size_t i = 0; i < declarationNode->branches.size(); i++) {
-            AST_NODE* currentNodeA = definitionNode->branches[i];
-            AST_NODE* currentNodeB = declarationNode->branches[i];
-            if (currentNodeA->type != currentNodeB->type) return true;
-            symbol_data* dataA = symbolTableInfo->getIdentifier(currentNodeA->key);
-            symbol_data* dataB = symbolTableInfo->getIdentifier(currentNodeB->key);
-            if (dataA->typeObject != dataB->typeObject or dataA->underlyingType != dataB->underlyingType) return true;
-        }
-    }
-    else {
-        return true;
-    }
-    return false;
-}
-
 void parse_block(AST_NODE* inputNode) { //inputNode->index is ( //endIndex is )
     std::cout << "parsing block!" << std::endl;
 
@@ -2016,6 +2051,93 @@ void parse_block(AST_NODE* inputNode) { //inputNode->index is ( //endIndex is )
         }
     };
 
+    auto parse_as_union_or_struct = [&inputNode](size_t& i, const syntax_type definitionType, syntax_type declarationType) {
+        if (i + 1 < tokenVector.size()) {
+            std::string key;
+            if (tokenVector[i + 1].Type == type::variable) {
+                token* identifierToken = &tokenVector[i + 1];
+                key = std::string((char*)identifierToken->value, identifierToken->size);
+            }
+            else if (tokenVector[i + 1].Type == type::openBracket) {
+                key = symbolTableInfo->generateUnnamedKey();
+            }
+            else {
+                std::cout << "err, expected identifier or {} at: " << i + 1 << std::endl;
+            }
+
+
+            AST_NODE* structNode = new AST_NODE;
+            structNode->index = i;
+            structNode->parent = inputNode;
+            inputNode->branches.push_back(structNode);
+
+            symbol_data* data = symbolTableInfo->declareType(key);
+            if (data == nullptr and i + 2 < tokenVector.size()) {
+                data = symbolTableInfo->getIdentifier(key);
+            }
+
+            if (i + 2 < tokenVector.size() and tokenVector[i + 2].Type == openCurlyBracket) { //definition
+                if (data->defined) {
+                    std::cout << "err, cannot redefine existing struct/union: " << structNode->key << std::endl;
+                }
+                structNode->type = definitionType;
+                structNode->key = key;
+                data->destinationNode = structNode;
+                structNode->endIndex = *(size_t*)tokenVector[i + 2].value;
+                data->defined = true;
+                parse_struct_definition(structNode, i + 2);
+            }
+            else {
+                structNode->key = key;
+                structNode->endIndex = i + 1;
+                structNode->type = declarationType;
+            }
+
+            i = structNode->endIndex;
+
+            if (i + 1 < tokenVector.size() and tokenVector[i + 1].Type != type::eol) { //add check for if the struct has been completed
+                parse_declaration_identifiers(inputNode->endIndex, structNode); //add a semantic check to ensure struct objects cannot be made before definition (ptrs to an undefined but declared struct is allowed)
+
+                if (not data->defined) {
+                    for (size_t it = 0; it < structNode->branches.size(); it++) { //checks to see if all declared identifiers are objects or pointers
+                        AST_NODE* currentNode = structNode->branches[it];
+                        symbol_data* currentData = symbolTableInfo->getIdentifier(currentNode->key);
+                        assert(currentData != nullptr);
+                        for (size_t specifierIt = 0; specifierIt < currentData->typeObject.size(); specifierIt++) {
+                            if (currentData->typeObject[specifierIt] == baseType::_pointer or currentData->typeObject[specifierIt] == baseType::_array) goto isPtr;
+                        }
+                        std::cout << "err, cannot declare a struct/union object when struct/union internals are unknown, err at: " << i << std::endl;
+                        break;
+                    isPtr:;
+                    }
+                }
+
+                if (not ALLOW_FUNCTION_DECLARATIONS_FOLLOWING_STRUCT_DEFINITIONS) {
+                    for (size_t it = data->memberKeyTable.size(); it < structNode->branches.size(); it++) { //checks to make sure no functions are declared
+                        AST_NODE* currentNode = structNode->branches[it];
+                        if (currentNode->type == syntax_type::function_declaration or currentNode->type == syntax_type::function_definition) std::cout << "err, function declaration cannot follow a struct/union definition: " << structNode->endIndex << std::endl;
+                        else {
+                            symbol_data* currentData = symbolTableInfo->getIdentifier(currentNode->key);
+                            assert(currentData != nullptr);
+                            for (size_t specifierIt = 0; specifierIt < currentData->typeObject.size(); specifierIt++) {
+                                if (currentData->typeObject[specifierIt] == baseType::_function) std::cout << "err, function declaration cannot follow a struct/union definition: " << structNode->endIndex << std::endl;
+                            }
+                        }
+                    }
+                }
+
+                i = structNode->endIndex;
+                if (i + 1 > tokenVector.size() and tokenVector[i + 1].Type == eol) {
+                    i++;
+                }
+
+            }
+            else if (i + 1 >= tokenVector.size()) std::cout << "err, incomplete struct/union definition at: " << structNode->endIndex << std::endl;
+        }
+        else {
+            std::cout << "err, expected tokens after struct/union at: " << i << std::endl;
+        }
+    };
 
     for (size_t i = inputNode->index + 1; i < inputNode->endIndex; i++) { //endIndex is the )
         token* currentToken = &tokenVector[i];
@@ -2186,93 +2308,11 @@ void parse_block(AST_NODE* inputNode) { //inputNode->index is ( //endIndex is )
                 std::cout << "err, expected tokens after enum at: " << i << std::endl;
             }
             break;
+        case type::unionType:
+            parse_as_union_or_struct(i, syntax_type::union_definition, syntax_type::union_declaration);
+            break;
         case type::structType:
-            if (i + 1 < tokenVector.size()) {
-                std::string key;
-                if (tokenVector[i + 1].Type == type::variable) {
-                    token* identifierToken = &tokenVector[i + 1];
-                    key = std::string((char*)identifierToken->value, identifierToken->size);
-                }
-                else if (tokenVector[i + 1].Type == type::openBracket) {
-                    key = symbolTableInfo->generateUnnamedKey();
-                }
-                else {
-                    std::cout << "err, expected identifier or {} at: " << i + 1 << std::endl;
-                }
-
-                
-                AST_NODE* structNode = new AST_NODE;
-                structNode->index = i;
-                structNode->parent = inputNode;
-                inputNode->branches.push_back(structNode);
-
-                symbol_data* data = symbolTableInfo->declareType(key);
-                if (data == nullptr and i + 2 < tokenVector.size()) {
-                    data = symbolTableInfo->getIdentifier(key);
-                }
-
-                if (i + 2 < tokenVector.size() and tokenVector[i + 2].Type == openCurlyBracket) { //definition
-                    if (data->defined) {
-                        std::cout << "err, cannot redefine existing struct: " << structNode->key << std::endl;
-                    }
-                    structNode->type = syntax_type::struct_definition;
-                    structNode->key = key;
-                    data->destinationNode = structNode;
-                    structNode->endIndex = *(size_t*)tokenVector[i + 2].value;
-                    data->defined = true;
-                    parse_struct_definition(structNode, i + 2);
-                }
-                else {
-                    structNode->key = key;
-                    structNode->endIndex = i + 1;
-                    structNode->type = syntax_type::struct_declaration;
-                }
-
-                i = structNode->endIndex;
-
-                if (i + 1 < tokenVector.size() and tokenVector[i + 1].Type != type::eol) { //add check for if the struct has been completed
-                    parse_declaration_identifiers(inputNode->endIndex, structNode); //add a semantic check to ensure struct objects cannot be made before definition (ptrs to an undefined but declared struct is allowed)
-                    
-                    if (not data->defined) {
-                        for (size_t it = 0; it < structNode->branches.size(); it++) { //checks to see if all declared identifiers are objects or pointers
-                            AST_NODE* currentNode = structNode->branches[it];
-                            symbol_data* currentData = symbolTableInfo->getIdentifier(currentNode->key);
-                            assert(currentData != nullptr);
-                            for (size_t specifierIt = 0; specifierIt < currentData->typeObject.size(); specifierIt++) {
-                                if (currentData->typeObject[specifierIt] == baseType::_pointer or currentData->typeObject[specifierIt] == baseType::_array) goto isPtr;
-                            }
-                            std::cout << "err, cannot declare a struct object when struct internals are unknown, err at: " << i << std::endl;
-                            break;
-                        isPtr:;
-                        }
-                    }
-                    
-                    if (not ALLOW_FUNCTION_DECLARATIONS_FOLLOWING_STRUCT_DEFINITIONS) {
-                        for (size_t it = data->memberKeyTable.size(); it < structNode->branches.size(); it++) { //checks to make sure no functions are declared
-                            AST_NODE* currentNode = structNode->branches[it];
-                            if (currentNode->type == syntax_type::function_declaration or currentNode->type == syntax_type::function_definition) std::cout << "err, function declaration cannot follow a struct definition: " << structNode->endIndex << std::endl;
-                            else {
-                                symbol_data* currentData = symbolTableInfo->getIdentifier(currentNode->key);
-                                assert(currentData != nullptr);
-                                for (size_t specifierIt = 0; specifierIt < currentData->typeObject.size(); specifierIt++) {
-                                    if (currentData->typeObject[specifierIt] == baseType::_function) std::cout << "err, function declaration cannot follow a struct definition: " << structNode->endIndex << std::endl;
-                                }
-                            }
-                        }
-                    }
-
-                    i = structNode->endIndex;
-                    if (i + 1 > tokenVector.size() and tokenVector[i + 1].Type == eol) {
-                        i++;
-                    }
-
-                }
-                else if (i + 1 >= tokenVector.size()) std::cout << "err, incomplete struct definition at: " << structNode->endIndex << std::endl;
-            }
-            else {
-                std::cout << "err, expected tokens after struct at: " << i << std::endl;
-            }
-
+            parse_as_union_or_struct(i, syntax_type::struct_definition, syntax_type::struct_declaration);
             break;
         case type::booleanType:
         case type::charType:
