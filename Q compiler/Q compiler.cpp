@@ -94,6 +94,8 @@ enum baseType {
     _struct,
     _union,
     _enum,
+    _signed,
+    _unsigned,
 };
 
 enum symbol_type {
@@ -336,7 +338,7 @@ enum syntax_type {
     null_type,
     translation_unit,
     parenthesized_expression,
-    type_cast,
+    type_cast, //the name is the underlying type to cast to (ie int or double or even void*)
     parenthesized_type,
     compound_literal,
     compound_literal_parameters,
@@ -415,6 +417,12 @@ enum syntax_type {
     union_declaration,
     struct_definition,
     struct_declaration,
+};
+
+enum type_family {
+    Void,
+    integer,
+    floating_point,
 };
 
 std::string syntax_type_to_string(syntax_type type)
@@ -545,6 +553,7 @@ struct symbol_data {
     std::vector<AST_NODE*> arraySizes; //ptr to the part of the AST where the expression for the size(s) is (also used for function parameters by pointing to the parameter_definition)
     std::unordered_map<std::string, std::string> memberKeyTable; //used for structs and possibly unions
     std::unordered_map<std::string, size_t> enumMembers;
+    type_family family = type_family::Void;
     symbol_type type = symbol_type::Void;
     size_t size; //in bytes
     bool defined = false;
@@ -570,10 +579,13 @@ public:
         declareVariable("a"); declareVariable("b"); declareVariable("c");
         declareVariable("d"); declareVariable("e"); declareVariable("f");
         declareVariable("g"); declareVariable("h"); declareVariable("i");
-        declareType("long long", 16);
-        declareType("long", 8);
-        declareType("int", 4);
-        declareType("short", 2);
+        declareType("long long", 16)->family = type_family::integer;
+        declareType("long", 8)->family = type_family::integer;
+        declareType("int", 4)->family = type_family::integer;
+        declareType("short", 2)->family = type_family::integer;
+        declareType("float", 4)->family = type_family::floating_point;
+        declareType("double", 8)->family = type_family::floating_point;
+        declareType("long double", 16)->family = type_family::floating_point;
         createFunctionScope();
     }
     ~symbol_table_info() {
@@ -1036,29 +1048,128 @@ void parse_arguments(AST_NODE* inputNode) { //assuming index is '(' and endindex
 
 //finish later
 class TypeChecker {
-
+public:
     symbol_data* lastType;
     symbol_data* currentType;
 
 
-    symbol_data* mathPromotion(symbol_data* underlyingTypeA, symbol_data* underlyingTypeB) {
+    signed char sameNumericalTypePromotion(symbol_data* underlyingTypeA, symbol_data* underlyingTypeB) { //integer includes int but also things like char or long
         signed char prefered = 0; //1 = A, 2 = B
         if (underlyingTypeA->type == symbol_type::Type and underlyingTypeB->type == symbol_type::Type) {
             if (underlyingTypeA->size > underlyingTypeB->size) prefered = 1;
             else if (underlyingTypeA->size < underlyingTypeB->size) prefered = 2;
-            else {
+            else { //if they are the same size
                 bool unsignedA = false;
                 bool unsignedB = false;
+
+                if (underlyingTypeA->typeObject.size() >= underlyingTypeB->typeObject.size()) {
+                    size_t it = 0;
+                    for (; it < underlyingTypeB->typeObject.size() and not unsignedB; it++) {
+                        if (underlyingTypeB->typeObject[it] == baseType::_unsigned) unsignedB = true;
+                        if (underlyingTypeA->typeObject[it] == baseType::_unsigned) unsignedA = true; 
+                    }
+                    for (; it < underlyingTypeA->typeObject.size() and not unsignedA; it++) {
+                        if (underlyingTypeA->typeObject[it] == baseType::_unsigned) unsignedA = true;
+                    }
+                }
+                else {
+                    size_t it = 0;
+                    for (; it < underlyingTypeA->typeObject.size() and not unsignedA; it++) {
+                        if (underlyingTypeB->typeObject[it] == baseType::_unsigned) unsignedB = true;
+                        if (underlyingTypeA->typeObject[it] == baseType::_unsigned) unsignedA = true;
+                    }
+                    for (; it < underlyingTypeB->typeObject.size() and not unsignedB; it++) {
+                        if (underlyingTypeB->typeObject[it] == baseType::_unsigned) unsignedB = true;
+                    }
+                }
+
+                if (not (unsignedA and unsignedB) and unsignedA or unsignedB) {
+                    if (unsignedA) prefered = 1;
+                    if (unsignedB) prefered = 2;
+                }
+
             }
         }
         else {
-            std::cout << "err, " << underlyingTypeA->name << " and/or " << underlyingTypeB->name << " cannot perform arithmetic" << std::endl;
+            std::cout << "err, " << underlyingTypeA->name << " and/or " << underlyingTypeB->name << " are not types and thus incapable of conversion" << std::endl;
         }
-
+        return prefered;
     }
 
+    //currently doesnt support ptr arithmetic yet
+    void arithmeticOperation(AST_NODE* operationNode, AST_NODE* leftNode, AST_NODE* rightNode) {
+        //make sure to insert nodes for when type conversions do take place
+        symbol_data* underlyingTypeA = getLeft();
+        symbol_data* outputType = nullptr;
 
-};
+
+        auto type_cast = [operationNode, &outputType](symbol_data* targetType, AST_NODE* targetNode) {
+            AST_NODE* conversionNode = new AST_NODE;
+            conversionNode->type = syntax_type::type_cast;
+            conversionNode->key = targetType->name;
+            conversionNode->branches.push_back(targetNode);
+            targetNode->parent = conversionNode;
+            targetNode = conversionNode;
+            outputType = targetType;
+        };
+
+        if (underlyingTypeA->family == type_family::floating_point) {
+            if (underlyingTypeB->family == underlyingTypeA->family) {
+                //identical check:  sameNumericalTypePromotion()
+                signed char preferred = sameNumericalTypePromotion(underlyingTypeA, underlyingTypeB);
+                if (preferred == 1) type_cast(underlyingTypeA, rightNode);
+                else if (preferred == 2) type_cast(underlyingTypeB, leftNode);
+                else outputType = underlyingTypeA;
+            }
+            else if (underlyingTypeB->family == type_family::integer) {
+                type_cast(underlyingTypeA, rightNode); //convert to typeA
+            }
+            else {
+                std::cout << "err, type: " << underlyingTypeB->name << " cannot be used in arithmetic operations" << std::endl;
+            }
+        }
+        else if (underlyingTypeA->family == type_family::integer) {
+            if (underlyingTypeB->family == underlyingTypeA->family) {
+                //identical check:  sameNumericalTypePromotion()
+                signed char preferred = sameNumericalTypePromotion(underlyingTypeA, underlyingTypeB);
+                if (preferred == 1) type_cast(underlyingTypeA, rightNode);
+                else if (preferred == 2) type_cast(underlyingTypeB, leftNode);
+                else outputType = underlyingTypeA;
+            }
+            else if (underlyingTypeB->family == type_family::floating_point) {
+                type_cast(underlyingTypeB, leftNode); //convert to typeB
+            }
+            else {
+                std::cout << "err, type: " << underlyingTypeB->name << " cannot be used in arithmetic operations" << std::endl;
+            }
+        }
+        else {
+            std::cout << "err, type: " << underlyingTypeA->name << " cannot be used in arithmetic operations" << std::endl;
+        }
+        operationNode->branches.push_back(leftNode);
+        operationNode->branches.push_back(rightNode);
+        leftNode->parent = operationNode;
+        rightNode->parent = operationNode;
+        setLeft(outputType);
+    }
+
+    std::stack<symbol_data*> leftTypeStack;
+    symbol_data* underlyingTypeB = nullptr;
+
+    void shiftToRight() { 
+        symbol_data* underlyingTypeB = leftTypeStack.top();
+        leftTypeStack.pop();
+    }
+
+    symbol_data* getLeft(void) {
+        return leftTypeStack.top();
+    }
+
+    void setLeft(symbol_data* value) {
+        leftTypeStack.top() = value;
+    }
+
+} type_checker;
 
 AST_NODE* parse_token(size_t inputIndex, AST_NODE* lastNode, bool nud, size_t end) {
     std::cout << "parsing token" << inputIndex << std::endl;
@@ -1070,9 +1181,15 @@ AST_NODE* parse_token(size_t inputIndex, AST_NODE* lastNode, bool nud, size_t en
     inputNode->index = inputIndex;
     inputToken->node = inputNode;
 
-
-    auto unary_prefix_operation = [inputNode, &inputIndex]() { //uses right hand side ie (symbol)token
+    auto spawn_nud_node = [&inputNode, &inputIndex]() {
+        type_checker.leftTypeStack.push(nullptr);
         AST_NODE* nextNode = pratt_parse_node(inputNode, inputIndex + 1, true);
+        type_checker.shiftToRight();
+        return nextNode;
+    };
+
+    auto unary_prefix_operation = [spawn_nud_node, inputNode, &inputIndex]() { //uses right hand side ie (symbol)token
+        AST_NODE* nextNode = spawn_nud_node();
         nextNode->parent = inputNode;
         inputNode->branches.push_back(nextNode);
         inputNode->endIndex = nextNode->endIndex;
@@ -1365,6 +1482,19 @@ AST_NODE* parse_token(size_t inputIndex, AST_NODE* lastNode, bool nud, size_t en
     case type::variable: {
         inputNode->type = syntax_type::identifier;
         std::string key = std::string((char*)inputToken->value, inputToken->size);
+        symbol_data* data = symbolTableInfo->getIdentifier(key);
+        if (data == nullptr) {
+            data = symbolTableInfo->getLabel(key);
+            if (data == nullptr) {
+                std::cout << "err, unrecognized identifier in expression, at: " << inputIndex << std::endl;
+            }
+            else {
+                std::cout << "err, label identifiers cannot appear in expressions, at: " << inputIndex << std::endl;
+            } 
+        }
+        else {
+            type_checker.setLeft(type_checker.extractType(data));
+        }
         inputNode->key = key; //get key for symbol table
         inputNode->endIndex = inputIndex;
         break;
@@ -1442,7 +1572,9 @@ AST_NODE* parse_declaration_specifier(size_t position, size_t endIndex) { //inde
         case doubleType:
             if (short_type or long_long_type) std::cout << "err, short/long long qualifiers cannot modify double, at: " << position << std::endl;
             if (signed_type or unsigned_type) std::cout << "err, sign qualifiers cannot modify double, at: " << position << std::endl;
-            underlyingType = (symbolTableInfo->getIdentifier("double")); goto end;
+            if (long_type) underlyingType = (symbolTableInfo->getIdentifier("long double"));
+            else underlyingType = (symbolTableInfo->getIdentifier("double"));
+            goto end;
         case shortType:
             if (short_type or long_type) std::cout << "err, cannot have multiple type length qualifiers with short, at:" << position << std::endl;
             short_type = true;
@@ -1456,12 +1588,12 @@ AST_NODE* parse_declaration_specifier(size_t position, size_t endIndex) { //inde
         case unsignedType:
             if (signed_type or unsigned_type) std::cout << "err, cannot have multiple signed/unsigned qualifiers, at:" << position << std::endl;
             else unsigned_type = true;
-            declarationSpecifierData.typeObject.push_back(tokenToBaseType(currentToken->Type));
+            declarationSpecifierData.typeObject.push_back(baseType::_unsigned);
             goto type_qualifier_check;
         case signedType:
             if (signed_type or unsigned_type) std::cout << "err, cannot have multiple signed/unsigned qualifiers, at:" << position << std::endl;
             else signed_type = true;
-            declarationSpecifierData.typeObject.push_back(tokenToBaseType(currentToken->Type));
+            declarationSpecifierData.typeObject.push_back(baseType::_signed);
         type_qualifier_check:
             if (position + 1 < endIndex or tokenVector[position + 1].Type == variable or tokenVector[position + 1].Type == multiplication) {
                 if (short_type) {
