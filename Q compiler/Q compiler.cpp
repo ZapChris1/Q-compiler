@@ -417,12 +417,16 @@ enum syntax_type {
     union_declaration,
     struct_definition,
     struct_declaration,
+    pointer_difference,
+    pointer_minus_integer,
+    pointer_plus_integer,
 };
 
 enum type_family {
     Void,
     integer,
     floating_point,
+    pointer,
 };
 
 std::string syntax_type_to_string(syntax_type type)
@@ -511,6 +515,9 @@ std::string syntax_type_to_string(syntax_type type)
     case syntax_type::union_declaration: return "union_declaration";
     case syntax_type::struct_definition: return "struct_definition";
     case syntax_type::struct_declaration: return "struct_declaration";
+    case syntax_type::pointer_difference: return "pointer_difference";
+    case syntax_type::pointer_minus_integer: return "pointer_minus_integer";
+    case syntax_type::pointer_plus_integer: return "pointer_plus_integer";
     default: return "unknown";
     }
 }
@@ -521,6 +528,7 @@ struct AST_NODE { //live on the heap(ptrs to them are in the branches vector) (w
     size_t endIndex = 0; //used for () and etc (for position across multi-tokens/range)
     bool marked = false; //set to true for terminals
     std::string key;
+    std::string secondKey; //used to represent the inputType in type casting
     syntax_type type = null_type;
     void* value = nullptr;
     std::vector<AST_NODE*> branches;
@@ -1051,8 +1059,8 @@ class TypeChecker {
 public:
     symbol_data* lastType;
     symbol_data* currentType;
-
-
+    std::stack<symbol_data> allocatedData;
+    //also use for function args and return type
     signed char sameNumericalTypePromotion(symbol_data* underlyingTypeA, symbol_data* underlyingTypeB) { //integer includes int but also things like char or long
         signed char prefered = 0; //1 = A, 2 = B
         if (underlyingTypeA->type == symbol_type::Type and underlyingTypeB->type == symbol_type::Type) {
@@ -1096,6 +1104,32 @@ public:
         return prefered;
     }
 
+    AST_NODE* assignmentOperation(AST_NODE* valueNode) { //returns the node after it has been fitted
+        symbol_data* underlyingTypeA = getLeft(); //the type of the parentNode
+        //underlyingTypeB is the type being assigned to it
+        if (underlyingTypeA == nullptr) { //if there is no explicit type to match
+            return valueNode;
+        }
+        else {
+            if (underlyingTypeA->family == underlyingTypeB->family) {
+                if (underlyingTypeB->size < underlyingTypeA->size) std::cout << "warning, larger type: " << underlyingTypeB->name << " cast into smaller type: " << underlyingTypeA->name << " at: " << valueNode->index << std::endl;
+                AST_NODE* conversionNode = new AST_NODE;
+                conversionNode->type = syntax_type::type_cast;
+                conversionNode->key = underlyingTypeA->name;
+                conversionNode->secondKey = underlyingTypeB->name;
+                conversionNode->branches.push_back(valueNode);
+                conversionNode->index = valueNode->index;
+                conversionNode->endIndex = valueNode->endIndex;
+                valueNode->parent = conversionNode;
+                return conversionNode;
+            }
+            else {
+                std::cout << "err, type: " << underlyingTypeB->name << " cannot be cast into: " << underlyingTypeA->name << " at: " << valueNode->index << std::endl;
+                return valueNode;
+            }
+        }
+    }
+
     //currently doesnt support ptr arithmetic yet
     void arithmeticOperation(AST_NODE* operationNode, AST_NODE* leftNode, AST_NODE* rightNode) {
         //make sure to insert nodes for when type conversions do take place
@@ -1103,49 +1137,92 @@ public:
         symbol_data* outputType = nullptr;
 
 
-        auto type_cast = [operationNode, &outputType](symbol_data* targetType, AST_NODE* targetNode) {
+        auto type_cast = [operationNode, &outputType](symbol_data* targetType, AST_NODE* targetNode, symbol_data* inputType) {
             AST_NODE* conversionNode = new AST_NODE;
             conversionNode->type = syntax_type::type_cast;
             conversionNode->key = targetType->name;
             conversionNode->branches.push_back(targetNode);
+            conversionNode->index = targetNode->index;
+            conversionNode->endIndex = targetNode->endIndex;
             targetNode->parent = conversionNode;
             targetNode = conversionNode;
             outputType = targetType;
         };
 
-        if (underlyingTypeA->family == type_family::floating_point) {
-            if (underlyingTypeB->family == underlyingTypeA->family) {
-                //identical check:  sameNumericalTypePromotion()
-                signed char preferred = sameNumericalTypePromotion(underlyingTypeA, underlyingTypeB);
-                if (preferred == 1) type_cast(underlyingTypeA, rightNode);
-                else if (preferred == 2) type_cast(underlyingTypeB, leftNode);
-                else outputType = underlyingTypeA;
-            }
-            else if (underlyingTypeB->family == type_family::integer) {
-                type_cast(underlyingTypeA, rightNode); //convert to typeA
+        if (underlyingTypeA->family == type_family::pointer or underlyingTypeB->family == type_family::pointer) {
+            if (operationNode->type != syntax_type::addition_operation or operationNode->type != syntax_type::subtraction_operation) {
+                std::cout << "err, operator: " << syntax_type_to_string(operationNode->type) << " cannot be applied to a pointer, at: " << operationNode->index << std::endl;
             }
             else {
-                std::cout << "err, type: " << underlyingTypeB->name << " cannot be used in arithmetic operations" << std::endl;
-            }
-        }
-        else if (underlyingTypeA->family == type_family::integer) {
-            if (underlyingTypeB->family == underlyingTypeA->family) {
-                //identical check:  sameNumericalTypePromotion()
-                signed char preferred = sameNumericalTypePromotion(underlyingTypeA, underlyingTypeB);
-                if (preferred == 1) type_cast(underlyingTypeA, rightNode);
-                else if (preferred == 2) type_cast(underlyingTypeB, leftNode);
-                else outputType = underlyingTypeA;
-            }
-            else if (underlyingTypeB->family == type_family::floating_point) {
-                type_cast(underlyingTypeB, leftNode); //convert to typeB
-            }
-            else {
-                std::cout << "err, type: " << underlyingTypeB->name << " cannot be used in arithmetic operations" << std::endl;
+                if (underlyingTypeA->family == underlyingTypeB->family) { //both ptrs
+                    if (operationNode->type != syntax_type::subtraction_operation) {
+                        std::cout << "err, operator: " << syntax_type_to_string(operationNode->type) << " cannot be applied to a pointer, at: " << operationNode->index << std::endl;
+                    }
+                    else {
+                        operationNode->type = syntax_type::pointer_difference;
+                        outputType = symbolTableInfo->getIdentifier("int"); //implement ptrdiff_t in the future aka later
+                    }
+                }
+                else {
+                    if (underlyingTypeA->family == type_family::integer or underlyingTypeB->family == type_family::integer) {
+                        if (operationNode->type == syntax_type::subtraction_operation) {
+                            operationNode->type = syntax_type::pointer_minus_integer;
+                        }
+                        else {
+                            operationNode->type = syntax_type::pointer_plus_integer;
+                        }
+
+                        if (underlyingTypeA->family == pointer) {
+                            if (underlyingTypeB->size < symbolTableInfo->getIdentifier("int")->size) type_cast(symbolTableInfo->getIdentifier("int"), rightNode, underlyingTypeB);
+                            outputType = underlyingTypeA;
+                        }
+                        else if (underlyingTypeB->family == pointer) {
+                            if (underlyingTypeA->size < symbolTableInfo->getIdentifier("int")->size) type_cast(symbolTableInfo->getIdentifier("int"), leftNode, underlyingTypeA);
+                            outputType = underlyingTypeB;
+                        }
+                    }
+                    else {
+                        std::cout << "err, ptr arithmetic must either be ptr, int or ptr, ptr, at: " << operationNode->index << std::endl;
+                    }
+                }
             }
         }
         else {
-            std::cout << "err, type: " << underlyingTypeA->name << " cannot be used in arithmetic operations" << std::endl;
+            if (underlyingTypeA->family == type_family::floating_point) {
+                if (underlyingTypeB->family == underlyingTypeA->family) {
+                    //identical check:  sameNumericalTypePromotion()
+                    signed char preferred = sameNumericalTypePromotion(underlyingTypeA, underlyingTypeB);
+                    if (preferred == 1) type_cast(underlyingTypeA, rightNode, underlyingTypeB);
+                    else if (preferred == 2) type_cast(underlyingTypeB, leftNode, underlyingTypeA);
+                    else outputType = underlyingTypeA;
+                }
+                else if (underlyingTypeB->family == type_family::integer) {
+                    type_cast(underlyingTypeA, rightNode, underlyingTypeB); //convert to typeA
+                }
+                else {
+                    std::cout << "err, type: " << underlyingTypeB->name << " cannot be used in arithmetic operations" << std::endl;
+                }
+            }
+            else if (underlyingTypeA->family == type_family::integer) {
+                if (underlyingTypeB->family == underlyingTypeA->family) {
+                    //identical check:  sameNumericalTypePromotion()
+                    signed char preferred = sameNumericalTypePromotion(underlyingTypeA, underlyingTypeB);
+                    if (preferred == 1) type_cast(underlyingTypeA, rightNode, underlyingTypeB);
+                    else if (preferred == 2) type_cast(underlyingTypeB, leftNode, underlyingTypeA);
+                    else outputType = underlyingTypeA;
+                }
+                else if (underlyingTypeB->family == type_family::floating_point) {
+                    type_cast(underlyingTypeB, leftNode, underlyingTypeA); //convert to typeB
+                }
+                else {
+                    std::cout << "err, type: " << underlyingTypeB->name << " cannot be used in arithmetic operations" << std::endl;
+                }
+            }
+            else {
+                std::cout << "err, type: " << underlyingTypeA->name << " cannot be used in arithmetic operations" << std::endl;
+            }
         }
+
         operationNode->branches.push_back(leftNode);
         operationNode->branches.push_back(rightNode);
         leftNode->parent = operationNode;
@@ -1153,16 +1230,69 @@ public:
         setLeft(outputType);
     }
 
+    symbol_data allocateNewLeft() {
+        allocatedData.push(symbol_data());
+        return allocatedData.top();
+    }
+
+    void popLeft(void) {
+        symbol_data* leftData = getLeft();
+        if (&allocatedData.top() == leftData) {
+            allocatedData.pop();
+            leftTypeStack.pop();
+        }
+    }
+
+    //expects one input (right)
+    void refrenceOperation() {
+        symbol_data* input = underlyingTypeB;
+        input->family = type_family::pointer;
+
+        symbol_data* output = &allocateNewLeft();
+        *output = *input; //copying the existing type
+        output->typeObject.push_back(_pointer);
+    }
+
+    //expects one input (right)
+    void derefrenceOperation(size_t inputIndex) {
+        symbol_data* input = underlyingTypeB;
+        if (input->family == type_family::pointer) {
+            symbol_data* output = &allocateNewLeft();
+            *output = *input; //copying the existing type
+            for (size_t it = output->typeObject.size(); it-- > 0;) {
+                if (output->typeObject[it] == baseType::_pointer) {
+                    output->typeObject.erase(output->typeObject.begin() + it);
+                    goto found;
+                }
+            }
+            std::cout << "err, cannot derefrence a non pointer object (did not find pointer trait in typeObject), at: " << inputIndex << std::endl;
+        found:;
+        }
+        else {
+            std::cout << "err, cannot derefrence a non pointer object, at: " << inputIndex << std::endl;
+        }
+    }
+
     std::stack<symbol_data*> leftTypeStack;
     symbol_data* underlyingTypeB = nullptr;
 
-    void shiftToRight() { 
+    void shiftToRight() {
         symbol_data* underlyingTypeB = leftTypeStack.top();
-        leftTypeStack.pop();
+        popLeft();
     }
 
     symbol_data* getLeft(void) {
-        return leftTypeStack.top();
+        if (leftTypeStack.empty()) return nullptr;
+        else return leftTypeStack.top();
+    }
+
+    symbol_data* extractType(symbol_data* identifierData) {
+        if (identifierData->typeObject.empty() or identifierData->type == symbol_type::Function) {
+            return identifierData->underlyingType;
+        }
+        else {
+            return identifierData; //full identiifer is used because underlying type doesnt capture nuances like *
+        }
     }
 
     void setLeft(symbol_data* value) {
@@ -1181,7 +1311,7 @@ AST_NODE* parse_token(size_t inputIndex, AST_NODE* lastNode, bool nud, size_t en
     inputNode->index = inputIndex;
     inputToken->node = inputNode;
 
-    auto spawn_nud_node = [&inputNode, &inputIndex]() {
+    auto spawn_nud_node = [&inputNode, &inputIndex]() { //the returned node will have its type in the right underlying type
         type_checker.leftTypeStack.push(nullptr);
         AST_NODE* nextNode = pratt_parse_node(inputNode, inputIndex + 1, true);
         type_checker.shiftToRight();
@@ -1213,6 +1343,7 @@ AST_NODE* parse_token(size_t inputIndex, AST_NODE* lastNode, bool nud, size_t en
         if (nud) {
             inputNode->type = syntax_type::derefrence_operation;
             unary_prefix_operation();
+            type_checker.derefrenceOperation(inputIndex);
         }
         else {
             inputNode->type = syntax_type::multiplication_operation;
@@ -1271,6 +1402,7 @@ AST_NODE* parse_token(size_t inputIndex, AST_NODE* lastNode, bool nud, size_t en
         if (nud) {
             inputNode->type = syntax_type::address_operation;
             unary_prefix_operation();
+            type_checker.refrenceOperation();
         }
         else {
             inputNode->type = syntax_type::bitwise_and_operation;
@@ -1493,7 +1625,7 @@ AST_NODE* parse_token(size_t inputIndex, AST_NODE* lastNode, bool nud, size_t en
             } 
         }
         else {
-            type_checker.setLeft(type_checker.extractType(data));
+            type_checker.setLeft(type_checker.extractType(data)); //works the same for function calls
         }
         inputNode->key = key; //get key for symbol table
         inputNode->endIndex = inputIndex;
@@ -1655,6 +1787,7 @@ void parse_declaration_identifiers(size_t endIndex, AST_NODE* declaration_node, 
         for (size_t position = inputPosition; position-- >= start;) { //prefix operators
             if (tokenVector[position].Type == multiplication) {
                 currentSymbol.typeObject.push_back(baseType::_pointer);
+                currentSymbol.family = type_family::pointer;
                 if (start > declaration_node->endIndex) return true;
             }
         }
@@ -1983,7 +2116,10 @@ size_t parse_parameter_declaration_identifier(size_t endIndex, AST_NODE* declara
         
         auto parse_prefix_modifiers = [](AST_NODE* identifierNode, size_t inputPosition, size_t start, symbol_data& currentSymbol) {
             for (size_t position = inputPosition; --position > start - 1;) { //prefix operators
-                if (tokenVector[position].Type == multiplication) currentSymbol.typeObject.push_back(baseType::_pointer);
+                if (tokenVector[position].Type == multiplication) {
+                    currentSymbol.typeObject.push_back(baseType::_pointer);
+                    currentSymbol.family = type_family::pointer;
+                }
             }
         };
 
@@ -2329,11 +2465,10 @@ void parse_block(AST_NODE* inputNode) { //inputNode->index is ( //endIndex is )
                         AST_NODE* currentNode = structNode->branches[it];
                         symbol_data* currentData = symbolTableInfo->getIdentifier(currentNode->key);
                         assert(currentData != nullptr);
-                        for (size_t specifierIt = 0; specifierIt < currentData->typeObject.size(); specifierIt++) {
-                            if (currentData->typeObject[specifierIt] == baseType::_pointer or currentData->typeObject[specifierIt] == baseType::_array) goto isPtr;
+                        if (currentData->family != type_family::pointer) {
+                            std::cout << "err, cannot declare a struct/union object when struct/union internals are unknown, err at: " << i << std::endl;
                         }
-                        std::cout << "err, cannot declare a struct/union object when struct/union internals are unknown, err at: " << i << std::endl;
-                        break;
+                        else goto isPtr;
                     isPtr:;
                     }
                 }
