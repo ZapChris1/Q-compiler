@@ -77,6 +77,7 @@ struct token; //forward declaration
 
 std::vector<token> tokenVector;
 
+
 enum class baseType {
     _void,
     _Bool,
@@ -97,6 +98,12 @@ enum class baseType {
     _signed,
     _unsigned,
 };
+std::ostream& operator<<(std::ostream& os, baseType& value)
+{
+    os << (size_t)value;
+    return os;
+}
+
 
 enum class symbol_type {
     Void,
@@ -105,6 +112,11 @@ enum class symbol_type {
     Label,
     Type //int, structs, classes etc go here
 };
+std::ostream& operator<<(std::ostream& os, symbol_type& value)
+{
+    os << (size_t)value;
+    return os;
+}
 
 enum class type {
     unsignedIntLiteral,
@@ -192,6 +204,11 @@ enum class type {
     orEquals,
     null,
 };
+std::ostream& operator<<(std::ostream& os, type& value)
+{
+    os << (size_t)value;
+    return os;
+}
 
 char getPriority(type inputType, bool nud) {
     if (nud) {
@@ -422,104 +439,112 @@ enum class syntax_type {
     pointer_plus_integer,
 };
 
+std::ostream& operator<<(std::ostream& os, syntax_type t)
+{
+    switch (t)
+    {
+    case syntax_type::null_type: os << "null_type"; break;
+    case syntax_type::translation_unit: os << "translation_unit"; break;
+    case syntax_type::parenthesized_expression: os << "parenthesized_expression"; break;
+    case syntax_type::type_cast: os << "type_cast"; break;
+    case syntax_type::parenthesized_type: os << "parenthesized_type"; break;
+    case syntax_type::compound_literal: os << "compound_literal"; break;
+    case syntax_type::compound_literal_parameters: os << "compound_literal_parameters"; break;
+    case syntax_type::index_operation: os << "index_operation"; break;
+    case syntax_type::function_call: os << "function_call"; break;
+    case syntax_type::function_arguments: os << "function_arguments"; break;
+    case syntax_type::function_declaration: os << "function_declaration"; break;
+    case syntax_type::function_definition: os << "function_definition"; break;
+    case syntax_type::declaration_specifier: os << "declaration_specifier"; break;
+    case syntax_type::parameter_list: os << "parameter_list"; break;
+    case syntax_type::parameter_declaration: os << "parameter_declaration"; break;
+    case syntax_type::type_specifier: os << "type_specifier"; break;
+    case syntax_type::derefrence_operation: os << "derefrence_operation"; break;
+    case syntax_type::conditional_operation: os << "conditional_operation";
+    case syntax_type::conditional_operator_false_case: os << "conditional_operator_false_case"; break;
+    case syntax_type::for_loop: os << "for_loop"; break;
+    case syntax_type::for_loop_parenthesis: os << "for_loop_parenthesis"; break;
+    case syntax_type::if_statement: os << "if_statement"; break;
+    case syntax_type::else_statement: os << "else_statement"; break;
+    case syntax_type::condition: os << "condition"; break;
+    case syntax_type::switch_statement: os << "switch_statement"; break;
+    case syntax_type::case_statement: os << "case_statement"; break;
+    case syntax_type::goto_statement: os << "goto_statement"; break;
+    case syntax_type::goto_destination: os << "goto_destination"; break;
+    case syntax_type::break_statement: os << "break_statement"; break;
+    case syntax_type::declarator: os << "declarator"; break;
+    case syntax_type::multiplication_operation: os << "multiplication_operation"; break;
+    case syntax_type::division_operation: os << "division_operation"; break;
+    case syntax_type::addition_operation: os << "addition_operation"; break;
+    case syntax_type::subtraction_operation: os << "subtraction_operation"; break;
+    case syntax_type::member_access: os << "member_access"; break;
+    case syntax_type::pointer_member_access: os << "pointer_member_access"; break;
+    case syntax_type::modulus_operation: os << "modulus_operation"; break;
+    case syntax_type::shift_left_operation: os << "shift_left_operation"; break;
+    case syntax_type::shift_right_operation: os << "shift_right_operation"; break;
+    case syntax_type::greater_than_comparison: os << "greater_than_comparison"; break;
+    case syntax_type::less_than_comparison: os << "less_than_comparison"; break;
+    case syntax_type::equal_comparison: os << "equal_comparison"; break;
+    case syntax_type::not_equal_comparison: os << "not_equal_comparison"; break;
+    case syntax_type::less_than_equal_comparison: os << "less_than_equal_comparison"; break;
+    case syntax_type::greater_than_equal_comparison: os << "greater_than_equal_comparison"; break;
+    case syntax_type::address_operation: os << "address_operation"; break;
+    case syntax_type::bitwise_and_operation: os << "bitwise_and_operation"; break;
+    case syntax_type::bitwise_not_operation: os << "bitwise_not_operation"; break;
+    case syntax_type::bitwise_xor_operation: os << "bitwise_xor_operation"; break;
+    case syntax_type::bitwise_or_operation: os << "bitwise_or_operation"; break;
+    case syntax_type::logical_or_operation: os << "logical_or_operation"; break;
+    case syntax_type::logical_and_operation: os << "logical_and_operation"; break;
+    case syntax_type::logical_not_operation: os << "logical_not_operation"; break;
+    case syntax_type::size_of_operation: os << "size_of_operation"; break;
+    case syntax_type::align_of_operation: os << "align_of_operation"; break;
+    case syntax_type::unary_positive: os << "unary_positive"; break;
+    case syntax_type::unary_negation: os << "unary_negation"; break;
+    case syntax_type::prefix_increment: os << "prefix_increment"; break;
+    case syntax_type::postfix_increment: os << "postfix_increment"; break;
+    case syntax_type::prefix_decrement: os << "prefix_decrement"; break;
+    case syntax_type::postfix_decrement: os << "postfix_decrement"; break;
+    case syntax_type::assignment: os << "assignment"; break;
+    case syntax_type::addition_assignment: os << "addition_assignment"; break;
+    case syntax_type::subtraction_assignment: os << "subtraction_assignment"; break;
+    case syntax_type::multiplication_assignment: os << "multiplication_assignment"; break;
+    case syntax_type::division_assignment: os << "division_assignment"; break;
+    case syntax_type::modulus_assignment: os << "modulus_assignment"; break;
+    case syntax_type::shift_left_assignment: os << "shift_left_assignment"; break;
+    case syntax_type::shift_right_assignment: os << "shift_right_assignment"; break;
+    case syntax_type::and_assignment: os << "and_assignment"; break;
+    case syntax_type::xor_assignment: os << "xor_assignment"; break;
+    case syntax_type::or_assignment: os << "or_assignment"; break;
+    case syntax_type::comma_seperator: os << "comma_seperator"; break;
+    case syntax_type::array_size_specifier: os << "array_size_specifier"; break;
+    case syntax_type::grammar_statement: os << "grammar_statement"; break;
+    case syntax_type::scope_block: os << "scope_block"; break;
+    case syntax_type::identifier: os << "identifier"; break;
+    case syntax_type::enum_definition: os << "enum_definition"; break;
+    case syntax_type::union_definition: os << "union_definition"; break;
+    case syntax_type::union_declaration: os << "union_declaration"; break;
+    case syntax_type::struct_definition: os << "struct_definition"; break;
+    case syntax_type::struct_declaration: os << "struct_declaration"; break;
+    case syntax_type::pointer_difference: os << "pointer_difference"; break;
+    case syntax_type::pointer_minus_integer: os << "pointer_minus_integer"; break;
+    case syntax_type::pointer_plus_integer: os << "pointer_plus_integer"; break;
+    default: os << (size_t)t;
+    }
+    return os;
+}
+
+
+
 enum class type_family {
     Void,
     integer,
     floating_point,
     pointer,
 };
-
-std::string syntax_type_to_string(syntax_type type)
+std::ostream& operator<<(std::ostream& os, type_family& value)
 {
-    switch (type)
-    {
-    case syntax_type::null_type: return "null_type";
-    case syntax_type::translation_unit: return "translation_unit";
-    case syntax_type::parenthesized_expression: return "parenthesized_expression";
-    case syntax_type::type_cast: return "type_cast";
-    case syntax_type::parenthesized_type: return "parenthesized_type";
-    case syntax_type::compound_literal: return "compound_literal";
-    case syntax_type::compound_literal_parameters: return "compound_literal_parameters";
-    case syntax_type::index_operation: return "index_operation";
-    case syntax_type::function_call: return "function_call";
-    case syntax_type::function_arguments: return "function_arguments";
-    case syntax_type::function_declaration: return "function_declaration";
-    case syntax_type::function_definition: return "function_definition";
-    case syntax_type::declaration_specifier: return "declaration_specifier";
-    case syntax_type::parameter_list: return "parameter_list";
-    case syntax_type::parameter_declaration: return "parameter_declaration";
-    case syntax_type::type_specifier: return "type_specifier";
-    case syntax_type::derefrence_operation: return "derefrence_operation";
-    case syntax_type::conditional_operation: return "conditional_operation";
-    case syntax_type::conditional_operator_false_case: return "conditional_operator_false_case";
-    case syntax_type::for_loop: return "for_loop";
-    case syntax_type::for_loop_parenthesis: return "for_loop_parenthesis";
-    case syntax_type::if_statement: return "if_statement";
-    case syntax_type::else_statement: return "else_statement";
-    case syntax_type::condition: return "condition";
-    case syntax_type::switch_statement: return "switch_statement";
-    case syntax_type::case_statement: return "case_statement";
-    case syntax_type::goto_statement: return "goto_statement";
-    case syntax_type::goto_destination: return "goto_destination";
-    case syntax_type::break_statement: return "break_statement";
-    case syntax_type::declarator: return "declarator";
-    case syntax_type::multiplication_operation: return "multiplication_operation";
-    case syntax_type::division_operation: return "division_operation";
-    case syntax_type::addition_operation: return "addition_operation";
-    case syntax_type::subtraction_operation: return "subtraction_operation";
-    case syntax_type::member_access: return "member_access";
-    case syntax_type::pointer_member_access: return "pointer_member_access";
-    case syntax_type::modulus_operation: return "modulus_operation";
-    case syntax_type::shift_left_operation: return "shift_left_operation";
-    case syntax_type::shift_right_operation: return "shift_right_operation";
-    case syntax_type::greater_than_comparison: return "greater_than_comparison";
-    case syntax_type::less_than_comparison: return "less_than_comparison";
-    case syntax_type::equal_comparison: return "equal_comparison";
-    case syntax_type::not_equal_comparison: return "not_equal_comparison";
-    case syntax_type::less_than_equal_comparison: return "less_than_equal_comparison";
-    case syntax_type::greater_than_equal_comparison: return "greater_than_equal_comparison";
-    case syntax_type::address_operation: return "address_operation";
-    case syntax_type::bitwise_and_operation: return "bitwise_and_operation";
-    case syntax_type::bitwise_not_operation: return "bitwise_not_operation";
-    case syntax_type::bitwise_xor_operation: return "bitwise_xor_operation";
-    case syntax_type::bitwise_or_operation: return "bitwise_or_operation";
-    case syntax_type::logical_or_operation: return "logical_or_operation";
-    case syntax_type::logical_and_operation: return "logical_and_operation";
-    case syntax_type::logical_not_operation: return "logical_not_operation";
-    case syntax_type::size_of_operation: return "size_of_operation";
-    case syntax_type::align_of_operation: return "align_of_operation";
-    case syntax_type::unary_positive: return "unary_positive";
-    case syntax_type::unary_negation: return "unary_negation";
-    case syntax_type::prefix_increment: return "prefix_increment";
-    case syntax_type::postfix_increment: return "postfix_increment";
-    case syntax_type::prefix_decrement: return "prefix_decrement";
-    case syntax_type::postfix_decrement: return "postfix_decrement";
-    case syntax_type::assignment: return "assignment";
-    case syntax_type::addition_assignment: return "addition_assignment";
-    case syntax_type::subtraction_assignment: return "subtraction_assignment";
-    case syntax_type::multiplication_assignment: return "multiplication_assignment";
-    case syntax_type::division_assignment: return "division_assignment";
-    case syntax_type::modulus_assignment: return "modulus_assignment";
-    case syntax_type::shift_left_assignment: return "shift_left_assignment";
-    case syntax_type::shift_right_assignment: return "shift_right_assignment";
-    case syntax_type::and_assignment: return "and_assignment";
-    case syntax_type::xor_assignment: return "xor_assignment";
-    case syntax_type::or_assignment: return "or_assignment";
-    case syntax_type::comma_seperator: return "comma_seperator";
-    case syntax_type::array_size_specifier: return "array_size_specifier";
-    case syntax_type::grammar_statement: return "grammar_statement";
-    case syntax_type::scope_block: return "scope_block";
-    case syntax_type::identifier: return "identifier";
-    case syntax_type::enum_definition: return "enum_definition";
-    case syntax_type::union_definition: return "union_definition";
-    case syntax_type::union_declaration: return "union_declaration";
-    case syntax_type::struct_definition: return "struct_definition";
-    case syntax_type::struct_declaration: return "struct_declaration";
-    case syntax_type::pointer_difference: return "pointer_difference";
-    case syntax_type::pointer_minus_integer: return "pointer_minus_integer";
-    case syntax_type::pointer_plus_integer: return "pointer_plus_integer";
-    default: return "unknown";
-    }
+    os << (size_t)value;
+    return os;
 }
 
 struct AST_NODE { //live on the heap(ptrs to them are in the branches vector) (will have to be freed during deconstruction of AST)
@@ -816,7 +841,7 @@ void printNode(AST_NODE* node) {
     for (unsigned int i = 0; i < lineCounter; i++) std::cout << "\t";
     
     if (!(node->key.empty())) std::cout << "key: " << node->key;
-    std::cout << " syntax_type: " << syntax_type_to_string(node->type) << " children: " << node->branches.size() << " index: " << node->index;
+    std::cout << " syntax_type: " << node->type << " children: " << node->branches.size() << " index: " << node->index;
     if (node->endIndex != 0) std::cout << " : "  << node->endIndex;
     
     std::cout << std::endl;
@@ -1151,12 +1176,12 @@ public:
 
         if (underlyingTypeA->family == type_family::pointer or underlyingTypeB->family == type_family::pointer) {
             if (operationNode->type != syntax_type::addition_operation or operationNode->type != syntax_type::subtraction_operation) {
-                std::cout << "err, operator: " << syntax_type_to_string(operationNode->type) << " cannot be applied to a pointer, at: " << operationNode->index << std::endl;
+                std::cout << "err, operator: " << operationNode->type << " cannot be applied to a pointer, at: " << operationNode->index << std::endl;
             }
             else {
                 if (underlyingTypeA->family == underlyingTypeB->family) { //both ptrs
                     if (operationNode->type != syntax_type::subtraction_operation) {
-                        std::cout << "err, operator: " << syntax_type_to_string(operationNode->type) << " cannot be applied to a pointer, at: " << operationNode->index << std::endl;
+                        std::cout << "err, operator: " << operationNode->type << " cannot be applied to a pointer, at: " << operationNode->index << std::endl;
                     }
                     else {
                         operationNode->type = syntax_type::pointer_difference;
