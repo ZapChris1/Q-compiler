@@ -1,4 +1,1 @@
-enum Color {
-	he,
-	go,
-}
+1 + 1

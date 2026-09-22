@@ -1262,7 +1262,7 @@ public:
 
     void popLeft(void) {
         symbol_data* leftData = getLeft();
-        if (&allocatedData.top() == leftData) {
+        if (!allocatedData.empty() and &allocatedData.top() == leftData) {
             allocatedData.pop();
             leftTypeStack.pop();
         }
@@ -1337,7 +1337,9 @@ public:
     }
 
     void setLeft(symbol_data* value) {
-        leftTypeStack.top() = value;
+        if (leftTypeStack.empty()) {
+            leftTypeStack.push(value);
+        } else leftTypeStack.top() = value; //replace top value
     }
 
 } type_checker;
@@ -1350,6 +1352,7 @@ AST_NODE* parse_token(size_t inputIndex, AST_NODE* lastNode, bool nud, size_t en
     if (inputNode) return inputNode; //if theres already a tree built no need to rebuild
     inputNode = new AST_NODE();
     inputNode->index = inputIndex;
+    inputNode->endIndex = inputIndex; //even if no endIndex is manually set we default back to end index and index being the same
     inputToken->node = inputNode;
 
     auto spawn_nud_node = [&inputNode, &inputIndex]() { //the returned node will have its type in the right underlying type
@@ -1680,6 +1683,9 @@ AST_NODE* parse_token(size_t inputIndex, AST_NODE* lastNode, bool nud, size_t en
         }
         delete inputNode;
         return nullptr;
+    case type::intLiteral:
+        type_checker.setLeft(symbolTableInfo->getIdentifier("int"));
+        break;
     default:
         std::cout << "err: unknown token: " << (size_t)inputToken->Type << "at: " << inputIndex << std::endl;
         inputNode->endIndex = inputIndex;
@@ -2411,7 +2417,7 @@ void parse_single_statement(AST_NODE* inputNode, size_t firstIndex, size_t end) 
         parse_declaration();
         break;
     default:
-        assert(false);
+        goto expression_case;
     expression_case: {
         AST_NODE* expressionNode = parse_expression(firstIndex - 1, end);
         if (expressionNode != nullptr) {
@@ -2728,7 +2734,7 @@ void parse_block(AST_NODE* inputNode) { //inputNode->index is ( //endIndex is )
             parse_declaration(i);
             break;
         default:
-            assert(false);
+            goto expression_case;
         expression_case: {
             AST_NODE* expressionNode = parse_expression(i - 1, inputNode->endIndex);
             if (expressionNode != nullptr) {
