@@ -1084,7 +1084,7 @@ class TypeChecker {
 public:
     symbol_data* lastType;
     symbol_data* currentType;
-    std::stack<symbol_data> allocatedData;
+    std::stack<symbol_data> allocatedData; //holds the data for intermediate values in type checking (ie holds the type for the refrence of another type)
     //also use for function args and return type
     signed char sameNumericalTypePromotion(symbol_data* underlyingTypeA, symbol_data* underlyingTypeB) { //integer includes int but also things like char or long
         signed char prefered = 0; //1 = A, 2 = B
@@ -1252,7 +1252,8 @@ public:
         operationNode->branches.push_back(rightNode);
         leftNode->parent = operationNode;
         rightNode->parent = operationNode;
-        setLeft(outputType);
+        underlyingTypeB = nullptr; //clear the right hand side
+        setLeft(outputType); //replace the left hand side with the output
     }
 
     symbol_data* allocateNewLeft() {
@@ -1262,13 +1263,14 @@ public:
 
     void popLeft(void) {
         symbol_data* leftData = getLeft();
-        if (!allocatedData.empty() and &allocatedData.top() == leftData) {
+        if (!allocatedData.empty() and &allocatedData.top() == leftData) { //if its an allocated type
             allocatedData.pop();
             leftTypeStack.pop();
         }
+        else if (!leftTypeStack.empty()) leftTypeStack.pop(); //if it is not an allocated type
     }
 
-    //expects one input (right)
+    //expects one input (right), writes over left with output
     void refrenceOperation() {
         symbol_data* input = underlyingTypeB;
         input->family = type_family::pointer;
@@ -1276,17 +1278,20 @@ public:
         symbol_data* output = allocateNewLeft();
         *output = *input; //copying the existing type
         output->typeObject.push_back(baseType::_pointer);
+        setLeft(output);
     }
 
-    //expects one input (right)
+    //expects one input (right), writes over left with output
     void derefrenceOperation(size_t inputIndex) {
         symbol_data* input = underlyingTypeB;
+        symbol_data* output;
         if (input->family == type_family::pointer) {
             symbol_data* output = allocateNewLeft();
             *output = *input; //copying the existing type
             for (size_t it = output->typeObject.size(); it-- > 0;) {
                 if (output->typeObject[it] == baseType::_pointer) {
                     output->typeObject.erase(output->typeObject.begin() + it);
+                    setLeft(output);
                     goto found;
                 }
             }
@@ -1318,7 +1323,7 @@ public:
     symbol_data* underlyingTypeB = nullptr;
 
     void shiftToRight() {
-        symbol_data* underlyingTypeB = leftTypeStack.top();
+        underlyingTypeB = leftTypeStack.top();
         popLeft();
     }
 
@@ -1354,11 +1359,12 @@ AST_NODE* parse_token(size_t inputIndex, AST_NODE* lastNode, bool nud, size_t en
     inputNode->index = inputIndex;
     inputNode->endIndex = inputIndex; //even if no endIndex is manually set we default back to end index and index being the same
     inputToken->node = inputNode;
+    type_checker.leftTypeStack.push(nullptr); //if its a null type we simply do not change this
 
     auto spawn_nud_node = [&inputNode, &inputIndex]() { //the returned node will have its type in the right underlying type
-        type_checker.leftTypeStack.push(nullptr);
         AST_NODE* nextNode = pratt_parse_node(inputNode, inputIndex + 1, true);
-        type_checker.shiftToRight();
+        type_checker.shiftToRight(); //shift the result of this to the right
+        type_checker.underlyingTypeB;
         return nextNode;
     };
 
@@ -1530,6 +1536,8 @@ AST_NODE* parse_token(size_t inputIndex, AST_NODE* lastNode, bool nud, size_t en
         else {
             inputNode->type = syntax_type::addition_operation;
             binary_operation();
+            type_checker.popLeft(); //pop the type for this left
+            type_checker.arithmeticOperation(inputNode, inputNode->branches[0], inputNode->branches[1]);
         }
         break;
     case type::subtraction:
