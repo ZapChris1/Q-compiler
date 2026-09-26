@@ -1159,6 +1159,7 @@ public:
     void arithmeticOperation(AST_NODE* operationNode, AST_NODE* leftNode, AST_NODE* rightNode) {
         //make sure to insert nodes for when type conversions do take place
         symbol_data* underlyingTypeA = getLeft();
+        std::cout << underlyingTypeA->name << "   !   ! ! !" << std::endl;
         symbol_data* outputType = nullptr;
 
 
@@ -1712,7 +1713,7 @@ AST_NODE* parse_declaration_specifier(size_t position, size_t endIndex) { //inde
 
     std::string key = symbolTableInfo->generateUnnamedKey();
     declarationSpecifierNode->key = key;
-    symbol_data declarationSpecifierData = *symbolTableInfo->declareIdentifier(key);
+    symbol_data& declarationSpecifierData = *symbolTableInfo->declareIdentifier(key);
     symbol_data* underlyingType = nullptr;
     
     bool short_type = false;
@@ -2025,7 +2026,7 @@ void parse_declaration_identifiers(size_t endIndex, AST_NODE* declaration_node, 
                     symbol_data* prototypeDeclaration = symbolTableInfo->checkIdentifier(identifierNode->key);
                     if (prototypeDeclaration != nullptr) {
                         if (prototypeDeclaration->defined) {
-
+                            //implement later
                         }
                         else {
 
