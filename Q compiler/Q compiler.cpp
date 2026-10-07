@@ -616,6 +616,7 @@ public:
         declareType("long", 8)->family = type_family::integer;
         declareType("int", 4)->family = type_family::integer;
         declareType("short", 2)->family = type_family::integer;
+        declareType("char", 1)->family = type_family::integer;
         declareType("float", 4)->family = type_family::floating_point;
         declareType("double", 8)->family = type_family::floating_point;
         declareType("long double", 16)->family = type_family::floating_point;
@@ -1164,12 +1165,15 @@ public:
 
 
         auto type_cast = [operationNode, &outputType](symbol_data* targetType, AST_NODE* targetNode, symbol_data* inputType) {
+            size_t it = std::distance(targetNode->parent->branches.begin(), std::find(targetNode->parent->branches.begin(), targetNode->parent->branches.end(), targetNode));
             AST_NODE* conversionNode = new AST_NODE;
             conversionNode->type = syntax_type::type_cast;
             conversionNode->key = targetType->name;
+            conversionNode->secondKey = inputType->name;
             conversionNode->branches.push_back(targetNode);
             conversionNode->index = targetNode->index;
             conversionNode->endIndex = targetNode->endIndex;
+            targetNode->parent->branches[it] = conversionNode;
             targetNode->parent = conversionNode;
             targetNode = conversionNode;
             outputType = targetType;
@@ -1711,9 +1715,8 @@ AST_NODE* parse_declaration_specifier(size_t position, size_t endIndex) { //inde
     declarationSpecifierNode->type = syntax_type::declaration_specifier;
     declarationSpecifierNode->index = position;
 
-    std::string key = symbolTableInfo->generateUnnamedKey();
-    declarationSpecifierNode->key = key;
-    symbol_data& declarationSpecifierData = *symbolTableInfo->declareIdentifier(key);
+    std::string key;
+    symbol_data* declarationSpecifierData = nullptr; //symbolTableInfo->declareIdentifier(key)
     symbol_data* underlyingType = nullptr;
     
     bool short_type = false;
@@ -1776,12 +1779,20 @@ AST_NODE* parse_declaration_specifier(size_t position, size_t endIndex) { //inde
         case type::unsignedType:
             if (signed_type or unsigned_type) std::cout << "err, cannot have multiple signed/unsigned qualifiers, at:" << position << std::endl;
             else unsigned_type = true;
-            declarationSpecifierData.typeObject.push_back(baseType::_unsigned);
+            if (declarationSpecifierData == nullptr) {
+                key = symbolTableInfo->generateUnnamedKey();
+                declarationSpecifierData = symbolTableInfo->declareIdentifier(key);
+            }
+            declarationSpecifierData->typeObject.push_back(baseType::_unsigned);
             goto type_qualifier_check;
         case type::signedType:
             if (signed_type or unsigned_type) std::cout << "err, cannot have multiple signed/unsigned qualifiers, at:" << position << std::endl;
             else signed_type = true;
-            declarationSpecifierData.typeObject.push_back(baseType::_signed);
+            if (declarationSpecifierData == nullptr) {
+                key = symbolTableInfo->generateUnnamedKey();
+                declarationSpecifierData = symbolTableInfo->declareIdentifier(key);
+            }
+            declarationSpecifierData->typeObject.push_back(baseType::_signed);
         type_qualifier_check:
             if (position + 1 < endIndex or tokenVector[position + 1].Type == type::variable or tokenVector[position + 1].Type == type::multiplication) {
                 if (short_type) {
@@ -1808,8 +1819,13 @@ AST_NODE* parse_declaration_specifier(size_t position, size_t endIndex) { //inde
     }
     end:
     if (underlyingType == nullptr) std::cout << "err, no underlying type found, at: " << position << std::endl;
-    
-    declarationSpecifierData.underlyingType = underlyingType;
+    if (declarationSpecifierData != nullptr) {
+        declarationSpecifierData->underlyingType = underlyingType;
+        declarationSpecifierNode->key = key;
+    }
+    else {
+        declarationSpecifierNode->key = underlyingType->name;
+    }
     declarationSpecifierNode->endIndex = position;
     return declarationSpecifierNode;
 }
