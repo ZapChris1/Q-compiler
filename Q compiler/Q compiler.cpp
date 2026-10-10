@@ -1808,7 +1808,7 @@ AST_NODE* parse_declaration_specifier(size_t position, size_t endIndex) { //inde
                     underlyingType = symbolTableInfo->getIdentifier("int");
                 }
 
-                if (position + 1 < endIndex and tokenVector[position + 1].Type == type::variable) position++;
+                //if (position + 1 < endIndex and tokenVector[position + 1].Type == type::variable) position++;
                 goto end;
             }
             break;
