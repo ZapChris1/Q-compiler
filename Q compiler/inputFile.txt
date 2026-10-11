@@ -1,1 +1,3 @@
-char x;
+long x;
+short y;
+x + y;

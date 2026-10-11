@@ -1794,7 +1794,7 @@ AST_NODE* parse_declaration_specifier(size_t position, size_t endIndex) { //inde
             }
             declarationSpecifierData->typeObject.push_back(baseType::_signed);
         type_qualifier_check:
-            if (position + 1 < endIndex or tokenVector[position + 1].Type == type::variable or tokenVector[position + 1].Type == type::multiplication) {
+            if (position + 1 < endIndex and (tokenVector[position + 1].Type == type::variable or tokenVector[position + 1].Type == type::multiplication)) {
                 if (short_type) {
                     underlyingType = symbolTableInfo->getIdentifier("short");
                 }
