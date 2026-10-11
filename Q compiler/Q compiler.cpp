@@ -1731,9 +1731,26 @@ AST_NODE* parse_declaration_specifier(size_t position, size_t endIndex) { //inde
         case type::variable:
         {
             std::string key((char*)currentToken->value, currentToken->size);
-            if (short_type or long_type) std::cout << "err, type length qualifiers cannot modify" << key << ", at: " << position << std::endl;
-            if (signed_type or unsigned_type) std::cout << "err, sign qualifiers cannot modify" << key << ", at: " << position << std::endl;
-            underlyingType = (symbolTableInfo->getIdentifier(key)); goto end;
+            if (key != "int") {
+                if (short_type or long_type) std::cout << "err, type length qualifiers cannot modify" << key << ", at: " << position << std::endl;
+                if (signed_type or unsigned_type) std::cout << "err, sign qualifiers cannot modify" << key << ", at: " << position << std::endl;
+                underlyingType = (symbolTableInfo->getIdentifier(key)); goto end;
+            }
+            else {
+                if (short_type) {
+                    underlyingType = symbolTableInfo->getIdentifier("short");
+                }
+                else if (long_long_type) {
+                    underlyingType = symbolTableInfo->getIdentifier("long long");
+                }
+                else if (long_type) {
+                    underlyingType = symbolTableInfo->getIdentifier("long");
+                }
+                else {
+                    underlyingType = symbolTableInfo->getIdentifier("int");
+                }
+                goto end;
+            }
         }
         case type::booleanType:
             if (short_type or long_type) std::cout << "err, type length qualifiers cannot modify bool, at: " << position << std::endl;
@@ -1793,8 +1810,10 @@ AST_NODE* parse_declaration_specifier(size_t position, size_t endIndex) { //inde
                 declarationSpecifierData = symbolTableInfo->declareIdentifier(key);
             }
             declarationSpecifierData->typeObject.push_back(baseType::_signed);
+            goto type_qualifier_check; //here just to be easier to read
         type_qualifier_check:
             if (position + 1 < endIndex and (tokenVector[position + 1].Type == type::variable or tokenVector[position + 1].Type == type::multiplication)) {
+
                 if (short_type) {
                     underlyingType = symbolTableInfo->getIdentifier("short");
                 }
@@ -1808,7 +1827,12 @@ AST_NODE* parse_declaration_specifier(size_t position, size_t endIndex) { //inde
                     underlyingType = symbolTableInfo->getIdentifier("int");
                 }
 
-                //if (position + 1 < endIndex and tokenVector[position + 1].Type == type::variable) position++;
+                if (tokenVector[position + 1].Type == type::variable) {
+                    std::string key((char*)tokenVector[position + 1].value, tokenVector[position + 1].size);
+                    if (key == "int") {
+                        position++; //skip past the int
+                    }
+                }
                 goto end;
             }
             break;

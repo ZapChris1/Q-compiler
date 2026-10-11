@@ -1,3 +1,1 @@
-long x;
-short y;
-x + y;
+long long int y;
