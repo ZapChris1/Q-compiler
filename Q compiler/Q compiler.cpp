@@ -1130,19 +1130,19 @@ public:
         return prefered;
     }
 
-    AST_NODE* assignmentOperation(AST_NODE* valueNode) { //returns the node after it has been fitted
-        symbol_data* underlyingTypeA = getLeft(); //the type of the parentNode
-        //underlyingTypeB is the type being assigned to it
-        if (underlyingTypeA == nullptr) { //if there is no explicit type to match
+    AST_NODE* assignmentOperation(AST_NODE* valueNode) { //returns the node after it has been filled (returns the casted version if it needed to be cast)
+        symbol_data* underlyingTypeA = getLeft(); //the type of the inputNode
+        //underlyingTypeB is the type of the variable being written to
+        if (underlyingTypeB == nullptr) { //if there is no explicit type to match
             return valueNode;
         }
         else {
-            if (underlyingTypeA->family == underlyingTypeB->family) {
-                if (underlyingTypeB->size < underlyingTypeA->size) std::cout << "warning, larger type: " << underlyingTypeB->name << " cast into smaller type: " << underlyingTypeA->name << " at: " << valueNode->index << std::endl;
+            if (underlyingTypeB->family == underlyingTypeA->family) {
+                if (underlyingTypeA->size < underlyingTypeB->size) std::cout << "warning, larger type: " << underlyingTypeA->name << " cast into smaller type: " << underlyingTypeB->name << " at: " << valueNode->index << std::endl;
                 AST_NODE* conversionNode = new AST_NODE;
                 conversionNode->type = syntax_type::type_cast;
-                conversionNode->key = underlyingTypeA->name;
-                conversionNode->secondKey = underlyingTypeB->name;
+                conversionNode->key = underlyingTypeB->name;
+                conversionNode->secondKey = underlyingTypeA->name;
                 conversionNode->branches.push_back(valueNode);
                 conversionNode->index = valueNode->index;
                 conversionNode->endIndex = valueNode->endIndex;
@@ -1150,7 +1150,7 @@ public:
                 return conversionNode;
             }
             else {
-                std::cout << "err, type: " << underlyingTypeB->name << " cannot be cast into: " << underlyingTypeA->name << " at: " << valueNode->index << std::endl;
+                std::cout << "err, type: " << underlyingTypeA->name << " cannot be cast into: " << underlyingTypeB->name << " at: " << valueNode->index << std::endl;
                 return valueNode;
             }
         }
@@ -1757,6 +1757,7 @@ AST_NODE* parse_declaration_specifier(size_t position, size_t endIndex) { //inde
             if (signed_type or unsigned_type) std::cout << "err, sign qualifiers cannot modify bool, at: " << position << std::endl;
             underlyingType = (symbolTableInfo->getIdentifier("boolean")); goto end;
         case type::charType:
+            char_case:
             if (short_type or long_type) std::cout << "err, type length qualifiers cannot modify char, at: " << position << std::endl;
             underlyingType = (symbolTableInfo->getIdentifier("char")); goto end;
         case type::intType:
@@ -1813,7 +1814,17 @@ AST_NODE* parse_declaration_specifier(size_t position, size_t endIndex) { //inde
             goto type_qualifier_check; //here just to be easier to read
         type_qualifier_check:
             if (position + 1 < endIndex and (tokenVector[position + 1].Type == type::variable or tokenVector[position + 1].Type == type::multiplication)) {
-
+                if (tokenVector[position + 1].Type == type::variable) {
+                    std::string key((char*)tokenVector[position + 1].value, tokenVector[position + 1].size);
+                    if (key == "int") {
+                        position++; //skip past the int
+                    } else if (key == "char") {
+                        if (short_type or long_long_type or long_type) std::cout << "err, type length qualifiers cannot modify char, at: " << position << std::endl;
+                        underlyingType = (symbolTableInfo->getIdentifier(key)); 
+                        position++;
+                        goto end;
+                    }
+                }
                 if (short_type) {
                     underlyingType = symbolTableInfo->getIdentifier("short");
                 }
@@ -1827,12 +1838,6 @@ AST_NODE* parse_declaration_specifier(size_t position, size_t endIndex) { //inde
                     underlyingType = symbolTableInfo->getIdentifier("int");
                 }
 
-                if (tokenVector[position + 1].Type == type::variable) {
-                    std::string key((char*)tokenVector[position + 1].value, tokenVector[position + 1].size);
-                    if (key == "int") {
-                        position++; //skip past the int
-                    }
-                }
                 goto end;
             }
             break;
@@ -2114,6 +2119,10 @@ void parse_declaration_identifiers(size_t endIndex, AST_NODE* declaration_node, 
                 if (!(declaration_node->branches.empty())) {
                     AST_NODE* identifierNode = declaration_node->branches.back();
                     AST_NODE* value = parse_expression(start - 1, position);
+                    
+                    type_checker.underlyingTypeB = type_checker.extractType(symbolTableInfo->getIdentifier(identifierNode->key));
+                    value = type_checker.assignmentOperation(value);
+                    
                     identifierNode->branches.push_back(value);
                     value->parent = identifierNode;
                     identifierNode->endIndex = value->endIndex;
@@ -2178,6 +2187,10 @@ void parse_declaration_identifiers(size_t endIndex, AST_NODE* declaration_node, 
                     found:
                     AST_NODE* identifierNode = declaration_node->branches.back();
                     AST_NODE* value = parse_expression(start - 1, expressionEndIndex);
+                    
+                    type_checker.underlyingTypeB = type_checker.extractType(symbolTableInfo->getIdentifier(identifierNode->key));
+                    value = type_checker.assignmentOperation(value);
+
                     identifierNode->branches.push_back(value);
                     value->parent = identifierNode;
                     identifierNode->endIndex = value->endIndex;
