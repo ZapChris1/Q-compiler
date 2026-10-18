@@ -1100,7 +1100,7 @@ public:
                     size_t it = 0;
                     for (; it < underlyingTypeB->typeObject.size() and not unsignedB; it++) {
                         if (underlyingTypeB->typeObject[it] == baseType::_unsigned) unsignedB = true;
-                        if (underlyingTypeA->typeObject[it] == baseType::_unsigned) unsignedA = true; 
+                        if (underlyingTypeA->typeObject[it] == baseType::_unsigned) unsignedA = true;
                     }
                     for (; it < underlyingTypeA->typeObject.size() and not unsignedA; it++) {
                         if (underlyingTypeA->typeObject[it] == baseType::_unsigned) unsignedA = true;
@@ -1133,11 +1133,11 @@ public:
     AST_NODE* assignmentOperation(AST_NODE* valueNode) { //returns the node after it has been filled (returns the casted version if it needed to be cast)
         symbol_data* underlyingTypeA = getLeft(); //the type of the inputNode
         //underlyingTypeB is the type of the variable being written to
-        if (underlyingTypeB == nullptr) { //if there is no explicit type to match
+        if (underlyingTypeB == nullptr or typeEqualityComparison(underlyingTypeA, underlyingTypeB)) { //if there is no explicit type to match or they are the same
             return valueNode;
         }
         else {
-            if (underlyingTypeB->family == underlyingTypeA->family) {
+            if (underlyingTypeB->family == underlyingTypeA->family and underlyingTypeB->typeObject == underlyingTypeA->typeObject) {
                 if (underlyingTypeA->size < underlyingTypeB->size) std::cout << "warning, larger type: " << underlyingTypeA->name << " cast into smaller type: " << underlyingTypeB->name << " at: " << valueNode->index << std::endl;
                 AST_NODE* conversionNode = new AST_NODE;
                 conversionNode->type = syntax_type::type_cast;
@@ -1149,8 +1149,24 @@ public:
                 valueNode->parent = conversionNode;
                 return conversionNode;
             }
-            else {
+            else if (underlyingTypeB->typeObject == underlyingTypeA->typeObject) {
+                if ((underlyingTypeA->family == type_family::floating_point and underlyingTypeB->family == type_family::integer) or (underlyingTypeB->family == type_family::floating_point and underlyingTypeA->family == type_family::integer)) {
+                    if (underlyingTypeA->size < underlyingTypeB->size) std::cout << "warning, larger type: " << underlyingTypeA->name << " cast into smaller type: " << underlyingTypeB->name << " at: " << valueNode->index << std::endl;
+                    AST_NODE* conversionNode = new AST_NODE;
+                    conversionNode->type = syntax_type::type_cast;
+                    conversionNode->key = underlyingTypeB->name;
+                    conversionNode->secondKey = underlyingTypeA->name;
+                    conversionNode->branches.push_back(valueNode);
+                    conversionNode->index = valueNode->index;
+                    conversionNode->endIndex = valueNode->endIndex;
+                    valueNode->parent = conversionNode;
+                    return conversionNode;
+                }
                 std::cout << "err, type: " << underlyingTypeA->name << " cannot be cast into: " << underlyingTypeB->name << " at: " << valueNode->index << std::endl;
+                return valueNode;
+            }
+            else {
+                std::cout << "err, different modifiers so: " << underlyingTypeA->name << " cannot be cast into: " << underlyingTypeB->name << " at: " << valueNode->index << std::endl;
                 return valueNode;
             }
         }
@@ -1180,7 +1196,7 @@ public:
         };
 
         if (underlyingTypeA->family == type_family::pointer or underlyingTypeB->family == type_family::pointer) {
-            if (operationNode->type != syntax_type::addition_operation or operationNode->type != syntax_type::subtraction_operation) {
+            if (not (operationNode->type == syntax_type::addition_operation or operationNode->type == syntax_type::subtraction_operation)) {
                 std::cout << "err, operator: " << operationNode->type << " cannot be applied to a pointer, at: " << operationNode->index << std::endl;
             }
             else {
@@ -1330,6 +1346,20 @@ public:
     void shiftToRight() {
         underlyingTypeB = leftTypeStack.top();
         popLeft();
+    }
+
+    bool typeEqualityComparison(symbol_data* A, symbol_data* B) {
+        if (A == B) return true; //return true if they are both pointing to the same address
+        else if (A->underlyingType != nullptr and B->underlyingType != nullptr) {
+            if (not A->typeObject.empty() and not B->typeObject.empty()) {
+                if (typeEqualityComparison(A->underlyingType, B->underlyingType)) {
+                    return A->typeObject == B->typeObject; //return true if they have the same typeobject and underlying type
+                }
+                else return false;
+            }
+            else return false;
+        }
+        else return false;
     }
 
     symbol_data* getLeft(void) {
@@ -1698,6 +1728,9 @@ AST_NODE* parse_token(size_t inputIndex, AST_NODE* lastNode, bool nud, size_t en
         return nullptr;
     case type::intLiteral:
         type_checker.setLeft(symbolTableInfo->getIdentifier("int"));
+        break;
+    case type::floatLiteral:
+        type_checker.setLeft(symbolTableInfo->getIdentifier("float"));
         break;
     default:
         std::cout << "err: unknown token: " << (size_t)inputToken->Type << "at: " << inputIndex << std::endl;
