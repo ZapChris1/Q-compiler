@@ -1085,7 +1085,7 @@ class TypeChecker {
 public:
     symbol_data* lastType;
     symbol_data* currentType;
-    std::stack<symbol_data> allocatedData; //holds the data for intermediate values in type checking (ie holds the type for the refrence of another type)
+    std::stack<symbol_data> allocatedData; //holds the data for intermediate values in type checking (ie holds the type for the reference of another type)
     //also use for function args and return type
     signed char sameNumericalTypePromotion(symbol_data* underlyingTypeA, symbol_data* underlyingTypeB) { //integer includes int but also things like char or long
         signed char prefered = 0; //1 = A, 2 = B
