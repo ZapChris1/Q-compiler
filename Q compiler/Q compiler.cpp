@@ -1138,7 +1138,7 @@ public:
         }
         else {
             if (underlyingTypeB->family == underlyingTypeA->family and underlyingTypeB->typeObject == underlyingTypeA->typeObject) {
-                if (underlyingTypeA->size < underlyingTypeB->size) std::cout << "warning, larger type: " << underlyingTypeA->name << " cast into smaller type: " << underlyingTypeB->name << " at: " << valueNode->index << std::endl;
+                if (underlyingTypeA->size > underlyingTypeB->size) std::cout << "warning, larger type: " << underlyingTypeA->name << " cast into smaller type: " << underlyingTypeB->name << " at: " << valueNode->index << std::endl;
                 AST_NODE* conversionNode = new AST_NODE;
                 conversionNode->type = syntax_type::type_cast;
                 conversionNode->key = underlyingTypeB->name;
@@ -1151,7 +1151,7 @@ public:
             }
             else if (underlyingTypeB->typeObject == underlyingTypeA->typeObject) {
                 if ((underlyingTypeA->family == type_family::floating_point and underlyingTypeB->family == type_family::integer) or (underlyingTypeB->family == type_family::floating_point and underlyingTypeA->family == type_family::integer)) {
-                    if (underlyingTypeA->size < underlyingTypeB->size) std::cout << "warning, larger type: " << underlyingTypeA->name << " cast into smaller type: " << underlyingTypeB->name << " at: " << valueNode->index << std::endl;
+                    if (underlyingTypeA->size > underlyingTypeB->size) std::cout << "warning, larger type: " << underlyingTypeA->name << " cast into smaller type: " << underlyingTypeB->name << " at: " << valueNode->index << std::endl;
                     AST_NODE* conversionNode = new AST_NODE;
                     conversionNode->type = syntax_type::type_cast;
                     conversionNode->key = underlyingTypeB->name;
@@ -1830,20 +1830,20 @@ AST_NODE* parse_declaration_specifier(size_t position, size_t endIndex) { //inde
         case type::unsignedType:
             if (signed_type or unsigned_type) std::cout << "err, cannot have multiple signed/unsigned qualifiers, at:" << position << std::endl;
             else unsigned_type = true;
-            if (declarationSpecifierData == nullptr) {
+            /*if (declarationSpecifierData == nullptr and false) {
                 key = symbolTableInfo->generateUnnamedKey();
                 declarationSpecifierData = symbolTableInfo->declareIdentifier(key);
             }
-            declarationSpecifierData->typeObject.push_back(baseType::_unsigned);
+            declarationSpecifierData->typeObject.push_back(baseType::_unsigned); */
             goto type_qualifier_check;
         case type::signedType:
             if (signed_type or unsigned_type) std::cout << "err, cannot have multiple signed/unsigned qualifiers, at:" << position << std::endl;
             else signed_type = true;
-            if (declarationSpecifierData == nullptr) {
+            /* if (declarationSpecifierData == nullptr and false) {
                 key = symbolTableInfo->generateUnnamedKey();
                 declarationSpecifierData = symbolTableInfo->declareIdentifier(key);
             }
-            declarationSpecifierData->typeObject.push_back(baseType::_signed);
+            declarationSpecifierData->typeObject.push_back(baseType::_signed); */
             goto type_qualifier_check; //here just to be easier to read
         type_qualifier_check:
             if (position + 1 < endIndex and (tokenVector[position + 1].Type == type::variable or tokenVector[position + 1].Type == type::multiplication)) {
@@ -1881,8 +1881,20 @@ AST_NODE* parse_declaration_specifier(size_t position, size_t endIndex) { //inde
     }
     end:
     if (underlyingType == nullptr) std::cout << "err, no underlying type found, at: " << position << std::endl;
-    if (declarationSpecifierData != nullptr) {
-        declarationSpecifierData->underlyingType = underlyingType;
+    if (signed_type or unsigned_type) {
+        if (unsigned_type) {
+            if (underlyingType == nullptr) {
+                underlyingType = symbolTableInfo->getIdentifier("int");
+            }
+            key = std::string("unsigned ") + underlyingType->name;
+            symbol_data* unsignedType = symbolTableInfo->getIdentifier(key);
+            if (unsignedType == nullptr) {
+                unsignedType = symbolTableInfo->declareType(key);
+                *unsignedType = *underlyingType;
+                unsignedType->name = key; //for now the only difference between an unsigned and signed is the name although it may be relevant in the future
+            }
+        }
+        else key = underlyingType->name;
         declarationSpecifierNode->key = key;
     }
     else {

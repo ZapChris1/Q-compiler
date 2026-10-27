@@ -1,1 +1,1 @@
-int l = 1.0 + 1;
+signed long long int l = 1.0 + 1;
