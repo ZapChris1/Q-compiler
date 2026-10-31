@@ -1,1 +1,11 @@
-int* x;
+int calculate(int value) {
+    int result = 0;
+
+    if (value > 0) {
+        result = value + 10;
+    } else {
+        result = value + 20;
+    }
+
+    return result;
+}

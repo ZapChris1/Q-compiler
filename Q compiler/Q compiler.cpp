@@ -168,6 +168,7 @@ enum class type {
     defaultStatement,
     gotoStatement,
     breakStatement,
+    returnStatement,
     comma,
     address,
     doubleAddress,
@@ -615,6 +616,7 @@ public:
         declareType("long long", 16)->family = type_family::integer;
         declareType("long", 8)->family = type_family::integer;
         declareType("int", 4)->family = type_family::integer;
+        declareType("void", 0)->family = type_family::Void;
         declareType("short", 2)->family = type_family::integer;
         declareType("char", 1)->family = type_family::integer;
         declareType("float", 4)->family = type_family::floating_point;
@@ -633,11 +635,10 @@ public:
         for (size_t i = 1; i <= tableStack.size(); i++) {
             std::unordered_map<std::string, symbol_data>* currentTable = tableStack.c[tableStack.size() - i];
             if (currentTable->find(key) != currentTable->end()) {
-                std::cout << i << std::endl;
                 return &(tableStack.c[tableStack.size() - i]->at(key));
             }
         }
-        std::cout << "Couldnt find identifier: " << key << std::endl;
+        //std::cout << "Couldnt find identifier: " << key << std::endl;
         return nullptr;
     }
 
@@ -656,7 +657,7 @@ public:
                 return &(labelTableStack.c[labelTableStack.size() - i]->at(key));
             }
         }
-        std::cout << "Couldnt find label: " << key << std::endl;
+        //std::cout << "Couldnt find label: " << key << std::endl;
         return nullptr;
     }
 
@@ -669,7 +670,6 @@ public:
         } else {
             if (tableStack.top()->find(key) == tableStack.top()->end()) {
                 (*tableStack.top()).insert({ key, newSymbol });
-                std::cout << "declared identifier :" << key << ": " << std::endl;
             }
             else {
                 std::cout << "attempted to redeclare identifier in the same scope :" << key << ": " << std::endl;
@@ -713,7 +713,6 @@ public:
         else {
             if (tableStack.top()->find(key) == tableStack.top()->end()) {
                 (*tableStack.top()).insert({ key, newSymbol });
-                std::cout << "declared identifier :" << key << ": " << std::endl;
             }
             else {
                 std::cout << "attempted to redeclare identifier in the same scope :" << key << ": " << std::endl;
@@ -789,7 +788,7 @@ public:
         else {
             lastUniqueKey = new std::string("0");
         }
-        std::cout << "key generated" << *lastUniqueKey << std::endl;
+        //std::cout << "key generated" << *lastUniqueKey << std::endl;
         return *lastUniqueKey;
     }
 
@@ -815,7 +814,6 @@ void setValue(token& currentNode, size_t startOfSymbol, const T& value) { //allo
         return;
     }
     else {
-        std::cout << "set value for: " << currentNode.Type << " to " << value << std::endl;
         std::memcpy(currentNode.value, &value, sizeof(T)); //directly setting the memory
         currentNode.size = sizeof(T);
     }
@@ -829,7 +827,6 @@ void setValue(token& currentNode, size_t startOfSymbol, const T* ptr, const size
         return;
     }
     else {
-        std::cout << "set value for: " << currentNode.Type << " to " << *ptr << std::endl;
         std::memcpy(currentNode.value, ptr, sizeof(T) * length); //directly setting the memory
         currentNode.size = sizeof(T) * length;
     }
@@ -838,12 +835,14 @@ void setValue(token& currentNode, size_t startOfSymbol, const T* ptr, const size
 
 size_t lineCounter = 0;
 void printNode(AST_NODE* node) {
-    std::cout << "\n" << std::endl;
     for (unsigned int i = 0; i < lineCounter; i++) std::cout << "\t";
     
     if (!(node->key.empty())) std::cout << "key: " << node->key;
-    std::cout << " syntax_type: " << node->type << " children: " << node->branches.size() << " index: " << node->index;
-    if (node->endIndex != 0) std::cout << " : "  << node->endIndex;
+    std::cout << " syntax_type: " << node->type << " children: " << node->branches.size();
+    if (node->index != (size_t)(-1)) {
+        std::cout << " index: " << node->index;
+        if (node->endIndex != 0) std::cout << " : " << node->endIndex;
+    }
     
     std::cout << std::endl;
 }
@@ -1020,7 +1019,6 @@ void parse_parenthesis_in_expression(AST_NODE* parenthesisNode) {
 
         assert(data != nullptr);
         if (data != nullptr) {
-            std::cout << "parsing!:" << key << ": " << std::endl;
             if (data->type == symbol_type::Type) { //if the variable is a type aka declaration
                 parse_as_type();
                 break;
@@ -1176,7 +1174,6 @@ public:
     void arithmeticOperation(AST_NODE* operationNode, AST_NODE* leftNode, AST_NODE* rightNode) {
         //make sure to insert nodes for when type conversions do take place
         symbol_data* underlyingTypeA = getLeft();
-        std::cout << underlyingTypeA->name << "   !   ! ! !" << std::endl;
         symbol_data* outputType = nullptr;
 
 
@@ -1194,7 +1191,6 @@ public:
             targetNode = conversionNode;
             outputType = targetType;
         };
-
         if (underlyingTypeA->family == type_family::pointer or underlyingTypeB->family == type_family::pointer) {
             if (not (operationNode->type == syntax_type::addition_operation or operationNode->type == syntax_type::subtraction_operation)) {
                 std::cout << "err, operator: " << operationNode->type << " cannot be applied to a pointer, at: " << operationNode->index << std::endl;
@@ -1294,10 +1290,10 @@ public:
     //expects one input (right), writes over left with output
     void refrenceOperation() {
         symbol_data* input = underlyingTypeB;
-        input->family = type_family::pointer;
 
         symbol_data* output = allocateNewLeft();
-        *output = *input; //copying the existing type
+        output->underlyingType = input;
+        output->family = type_family::pointer;
         output->typeObject.push_back(baseType::_pointer);
         setLeft(output);
     }
@@ -1309,6 +1305,7 @@ public:
         if (input->family == type_family::pointer) {
             symbol_data* output = allocateNewLeft();
             *output = *input; //copying the existing type
+            output->family = input->underlyingType->family;
             for (size_t it = output->typeObject.size(); it-- > 0;) {
                 if (output->typeObject[it] == baseType::_pointer) {
                     output->typeObject.erase(output->typeObject.begin() + it);
@@ -1385,7 +1382,6 @@ public:
 } type_checker;
 
 AST_NODE* parse_token(size_t inputIndex, AST_NODE* lastNode, bool nud, size_t end) {
-    std::cout << "parsing token" << inputIndex << std::endl;
     token* inputToken = &tokenVector[inputIndex];
     AST_NODE* inputNode = inputToken->node;
     assert(inputNode == nullptr);
@@ -1394,12 +1390,11 @@ AST_NODE* parse_token(size_t inputIndex, AST_NODE* lastNode, bool nud, size_t en
     inputNode->index = inputIndex;
     inputNode->endIndex = inputIndex; //even if no endIndex is manually set we default back to end index and index being the same
     inputToken->node = inputNode;
-    type_checker.leftTypeStack.push(nullptr); //if its a null type we simply do not change this
+    //type_checker.leftTypeStack.push(nullptr); //if its a null type we simply do not change this
 
     auto spawn_nud_node = [&inputNode, &inputIndex]() { //the returned node will have its type in the right underlying type
         AST_NODE* nextNode = pratt_parse_node(inputNode, inputIndex + 1, true);
         type_checker.shiftToRight(); //shift the result of this to the right
-        type_checker.underlyingTypeB;
         return nextNode;
     };
 
@@ -1439,13 +1434,40 @@ AST_NODE* parse_token(size_t inputIndex, AST_NODE* lastNode, bool nud, size_t en
         inputNode->type = syntax_type::division_operation;
         binary_operation();
         break;
-    case type::structAccess:
+    case type::structAccess: {
+        type_checker.leftTypeStack;
         inputNode->type = syntax_type::member_access;
         binary_operation();
+
+        std::string structKey = inputNode->branches[0]->key;
+        symbol_data* structData = symbolTableInfo->getIdentifier(structKey);
+        if (structData == nullptr) std::cout << "err, cannot find struct: " << structKey << " at: " << inputIndex << std::endl;
+        std::string key = type_checker.extractType(structData)->memberKeyTable.at(inputNode->branches[1]->key);
+        symbol_data* data = symbolTableInfo->getIdentifier(key);
+        if (data == nullptr) {
+            std::cout << "err, member of struct, at: " << inputIndex << std::endl;
+        }
+        else {
+            type_checker.leftTypeStack.push(type_checker.extractType(data)); //works the same for function calls
+        }
+    }
         break;
-    case type::structPointerAccess:
-        inputNode->type = syntax_type::pointer_member_access;
-        binary_operation();
+    case type::structPointerAccess: {
+            inputNode->type = syntax_type::pointer_member_access;
+            binary_operation();
+
+            std::string structKey = inputNode->branches[0]->key;
+            symbol_data* structData = symbolTableInfo->getIdentifier(structKey);
+            if (structData == nullptr) std::cout << "err, cannot find struct: " << structKey << " at: " << inputIndex << std::endl;
+            std::string key = type_checker.extractType(structData)->memberKeyTable.at(inputNode->branches[1]->key);
+            symbol_data* data = symbolTableInfo->getIdentifier(key);
+            if (data == nullptr) {
+                std::cout << "err, member of struct, at: " << inputIndex << std::endl;
+            }
+            else {
+                type_checker.leftTypeStack.push(type_checker.extractType(data)); //works the same for function calls
+            }
+        }
         break;
     case type::modulus:
         inputNode->type = syntax_type::modulus_operation;
@@ -1571,7 +1593,6 @@ AST_NODE* parse_token(size_t inputIndex, AST_NODE* lastNode, bool nud, size_t en
         else {
             inputNode->type = syntax_type::addition_operation;
             binary_operation();
-            type_checker.popLeft(); //pop the type for this left
             type_checker.arithmeticOperation(inputNode, inputNode->branches[0], inputNode->branches[1]);
         }
         break;
@@ -1705,14 +1726,14 @@ AST_NODE* parse_token(size_t inputIndex, AST_NODE* lastNode, bool nud, size_t en
         if (data == nullptr) {
             data = symbolTableInfo->getLabel(key);
             if (data == nullptr) {
-                std::cout << "err, unrecognized identifier in expression, at: " << inputIndex << std::endl;
+                //std::cout << "err, unrecognized identifier in expression, at: " << inputIndex << std::endl;
             }
             else {
                 std::cout << "err, label identifiers cannot appear in expressions, at: " << inputIndex << std::endl;
             } 
         }
         else {
-            type_checker.setLeft(type_checker.extractType(data)); //works the same for function calls
+            type_checker.leftTypeStack.push(type_checker.extractType(data)); //works the same for function calls
         }
         inputNode->key = key; //get key for symbol table
         inputNode->endIndex = inputIndex;
@@ -1727,10 +1748,10 @@ AST_NODE* parse_token(size_t inputIndex, AST_NODE* lastNode, bool nud, size_t en
         delete inputNode;
         return nullptr;
     case type::intLiteral:
-        type_checker.setLeft(symbolTableInfo->getIdentifier("int"));
+        type_checker.leftTypeStack.push(symbolTableInfo->getIdentifier("int"));
         break;
     case type::floatLiteral:
-        type_checker.setLeft(symbolTableInfo->getIdentifier("float"));
+        type_checker.leftTypeStack.push(symbolTableInfo->getIdentifier("float"));
         break;
     default:
         std::cout << "err: unknown token: " << (size_t)inputToken->Type << "at: " << inputIndex << std::endl;
@@ -1743,7 +1764,6 @@ AST_NODE* parse_token(size_t inputIndex, AST_NODE* lastNode, bool nud, size_t en
 void parse_block(AST_NODE* inputNode);
 
 AST_NODE* parse_declaration_specifier(size_t position, size_t endIndex) { //index is the first index to check and endIndex is where to stop
-    std::cout << "parsing declaration specifiers!" << std::endl;
     AST_NODE* declarationSpecifierNode = new AST_NODE;
     declarationSpecifierNode->type = syntax_type::declaration_specifier;
     declarationSpecifierNode->index = position;
@@ -1924,7 +1944,6 @@ bool check_prototype_parameters(AST_NODE* definitionNode, AST_NODE* declarationN
 }
 
 void parse_declaration_identifiers(size_t endIndex, AST_NODE* declaration_node, std::vector<key_pair>* outVector = nullptr, bool use_unnamed_keys = false) { //inParameters refers to whether this declaration is parameter declaration
-    std::cout << "parsing declaration identifiers at!: " << declaration_node->index << std::endl;
     bool typeObjectReady = false;
     size_t startIndex = declaration_node->endIndex + 1;
     size_t start = startIndex;
@@ -1946,7 +1965,6 @@ void parse_declaration_identifiers(size_t endIndex, AST_NODE* declaration_node, 
         size_t prefixPosition = identifierPosition;
 
         symbol_data currentSymbol;
-
         bool enclosed_ptr = false;
         bool valid_function = true;
 
@@ -2025,7 +2043,6 @@ void parse_declaration_identifiers(size_t endIndex, AST_NODE* declaration_node, 
                 underlyingTypeData->typeObject.insert(underlyingTypeData->typeObject.end(), currentSymbol.typeObject.begin(), currentSymbol.typeObject.end());
 
                 if (functionParameters->endIndex + 1 < tokenVector.size() and tokenVector[functionParameters->endIndex + 1].Type == type::openCurlyBracket) {
-                    std::cout << "function definition" << std::endl;
                     
                     identifierNode->type = syntax_type::function_definition;
                     parse_prefix_modifiers(identifierNode, prefixPosition, start, currentSymbol);
@@ -2091,14 +2108,13 @@ void parse_declaration_identifiers(size_t endIndex, AST_NODE* declaration_node, 
                     if (prototypeDeclaration != nullptr) { //if there was a previous forwards declaration
                         check_discrepancies(underlyingTypeData, prototypeDeclaration, position); //semantic check
                     }
-                    std::cout << "function declaration" << std::endl;
                     identifierNode->type = syntax_type::function_declaration;
                     identifierNode->endIndex = functionParameters->endIndex;
 
                     position = identifierNode->endIndex;
                 }
             }
-            else if (tokenVector[position].Type == type::equals or tokenVector[position].Type == type::comma or tokenVector[position].Type == type::eol) {
+            else if (tokenVector[position].Type == type::equals or tokenVector[position].Type == type::comma or tokenVector[position].Type == type::eol or tokenVector[position].Type == type::closeCurlyBracket) {
                 assert(identifierNode->endIndex == position - 1);
                 if (identifierNode->endIndex < position - 1) std::cout << "err, unused tokens at: " << position << std::endl;
                 if (outVector != nullptr and use_unnamed_keys) {
@@ -2192,7 +2208,6 @@ void parse_declaration_identifiers(size_t endIndex, AST_NODE* declaration_node, 
             identifierNode->index = position;
             identifierNode->endIndex = position;
             size_t newPosition = parse_postfix_modifiers(identifierNode, start);
-            std::cout << identifierNode->key << " : " << start << " : " << newPosition << std::endl;
             
             if (identifierNode->type == syntax_type::null_type) {
                 identifierNode->type = syntax_type::identifier;
@@ -2244,9 +2259,11 @@ void parse_declaration_identifiers(size_t endIndex, AST_NODE* declaration_node, 
                     position = identifierNode->endIndex;
                     start = position + 1;
                 }
-                else if (tokenVector[newPosition].Type == type::eol) {
+                else if (tokenVector[newPosition].Type == type::eol or tokenVector[newPosition].Type == type::closeCurlyBracket) {
                     position = newPosition - 1;
+                    goto end;
                 }
+
             }
         }
             break;
@@ -2259,6 +2276,7 @@ void parse_declaration_identifiers(size_t endIndex, AST_NODE* declaration_node, 
         }
     }
 end:
+    auto end = declaration_node->branches.back()->endIndex;
     assert(declaration_node->branches.back()->endIndex >= position);
     if (declaration_node->branches.back()->endIndex < position) std::cout << "err, unused tokens at: " << position << std::endl;
     if (declaration_node->branches.empty()) {
@@ -2395,7 +2413,6 @@ void parse_struct_definition(AST_NODE* structNode, size_t start) { //can also be
 }
 
 void parse_single_statement(AST_NODE* inputNode, size_t firstIndex, size_t end) {
-    std::cout << "parsing block!" << std::endl;
 
     auto prepare_control_flow_node = [&inputNode, firstIndex](const syntax_type statementType) {
         AST_NODE* newNode = new AST_NODE();
@@ -2407,7 +2424,7 @@ void parse_single_statement(AST_NODE* inputNode, size_t firstIndex, size_t end) 
     };
 
     auto parse_declaration = [&inputNode]() {
-        std::cout << "err, declaration in place of a statement" << std::endl;
+        //std::cout << "err, declaration in place of a statement" << std::endl;
     };
 
     token* currentToken = &tokenVector[firstIndex];
@@ -2460,7 +2477,6 @@ void parse_single_statement(AST_NODE* inputNode, size_t firstIndex, size_t end) 
     }
     case type::variable: {
         std::string key((char*)currentToken->value, currentToken->size);
-        std::cout << "currentToken size: " << key << std::endl;
 
         if (firstIndex + 1 < end and tokenVector[firstIndex + 1].Type == type::colon) { //label
             token* secondToken = &tokenVector[firstIndex + 1];
@@ -2492,10 +2508,8 @@ void parse_single_statement(AST_NODE* inputNode, size_t firstIndex, size_t end) 
         }
         else {
             symbol_data* data = symbolTableInfo->getIdentifier(key);
-            std::cout << "currentToken name: " << key << std::endl;
 
             if (data) {
-                std::cout << "parsing!:" << key << ": " << std::endl;
                 if (data->type == symbol_type::Type) { //if the variable is a type aka declaration
                     parse_declaration();
                     break;
@@ -2534,14 +2548,12 @@ void parse_single_statement(AST_NODE* inputNode, size_t firstIndex, size_t end) 
             break;
         }
         else {
-            std::cout << "empty expression at: " << firstIndex << std::endl;
         }
         }
     }
 }
 
 void parse_block(AST_NODE* inputNode) { //inputNode->index is ( //endIndex is )
-    std::cout << "parsing block!" << std::endl;
 
     auto prepare_control_flow_node = [&inputNode](const syntax_type statementType, size_t i) {
         AST_NODE* newNode = new AST_NODE();
@@ -2656,7 +2668,6 @@ void parse_block(AST_NODE* inputNode) { //inputNode->index is ( //endIndex is )
 
     for (size_t i = inputNode->index + 1; i < inputNode->endIndex; i++) { //endIndex is the )
         token* currentToken = &tokenVector[i];
-        std::cout << "parsing token: " << i << "  with type: " << (size_t)currentToken->Type << std::endl;
         switch (currentToken->Type) {
         case type::closeParenthesis:
         case type::closeBracket:
@@ -2688,6 +2699,8 @@ void parse_block(AST_NODE* inputNode) { //inputNode->index is ( //endIndex is )
             i = currentNode->endIndex;
             break;
         }
+        case type::returnStatement:
+            break;
         case type::forStatement:
         {
             AST_NODE* currentNode = prepare_control_flow_node(syntax_type::for_loop, i);
@@ -2704,7 +2717,6 @@ void parse_block(AST_NODE* inputNode) { //inputNode->index is ( //endIndex is )
         }
         case type::variable: {
             std::string key((char*)currentToken->value, currentToken->size);
-            std::cout << "currentToken size: " << key << std::endl;
 
             if (i + 1 < inputNode->endIndex and tokenVector[i + 1].Type == type::colon) { //label
                 token* secondToken = &tokenVector[i + 1];
@@ -2735,10 +2747,8 @@ void parse_block(AST_NODE* inputNode) { //inputNode->index is ( //endIndex is )
                 break;
             } else {
                 symbol_data* data = symbolTableInfo->getIdentifier(key);
-                std::cout << "currentToken name: " << key << std::endl;
 
                 if (data) {
-                    std::cout << "parsing!:" << key << ": " << std::endl;
                     if (data->type == symbol_type::Type) { //if the variable is a type aka declaration
                         parse_declaration(i);
                         break;
@@ -2824,9 +2834,11 @@ void parse_block(AST_NODE* inputNode) { //inputNode->index is ( //endIndex is )
             }
             break;
         case type::unionType:
+            if (i + 2 < tokenVector.size() and tokenVector[i + 1].Type != type::openCurlyBracket and tokenVector[i + 2].Type != type::openCurlyBracket) break; //declaration of instance
             parse_as_union_or_struct(i, syntax_type::union_definition, syntax_type::union_declaration);
             break;
         case type::structType:
+            if (i + 2 < tokenVector.size() and tokenVector[i + 1].Type != type::openCurlyBracket and tokenVector[i + 2].Type != type::openCurlyBracket) break; //declaration of instance
             parse_as_union_or_struct(i, syntax_type::struct_definition, syntax_type::struct_declaration);
             break;
         case type::booleanType:
@@ -2851,7 +2863,6 @@ void parse_block(AST_NODE* inputNode) { //inputNode->index is ( //endIndex is )
                 break;
             }
             else {
-                std::cout << "empty expression at: " << i << std::endl;
             }
         }
         }
@@ -3013,7 +3024,6 @@ std::unordered_map<std::string, type> tokenKeywordTable;
 void interpretSymbol(size_t startOfSymbol, size_t endOfSymbol, type currentType, std::string& source, std::vector<bracket_information>& bracketVector) {
     if (startOfSymbol >= endOfSymbol) return; //exit if there isnt a symbol (endOfSymbol is exclusive)
     size_t length = endOfSymbol - startOfSymbol;
-    std::cout << "token: " << source.substr(startOfSymbol, length) << ": Start of Symbol " << startOfSymbol << " length " << length << " type: "  << (size_t)currentType << std::endl;
     token currentNode;
     
     currentNode.Type = currentType;
@@ -3108,7 +3118,6 @@ void tokenize(std::string& source, std::vector<bracket_information>& bracketVect
         static size_t callCount = 0;
         callCount++;
         interpretSymbol(startOfSymbol, endOfSymbol, currentType, source, bracketVector);
-        std::cout << "specific lexxed: " << source.substr(startOfSymbol, endOfSymbol - startOfSymbol) << " at " << startOfSymbol << " with len " << endOfSymbol - startOfSymbol << std::endl;
         startOfSymbol = start;
         endOfSymbol = i + 1;
         currentType = inputType;
@@ -3156,7 +3165,7 @@ void tokenize(std::string& source, std::vector<bracket_information>& bracketVect
         case '7':
         case '8':
         case '9':
-            if (!(currentType == type::unsignedIntLiteral or currentType == type::intLiteral or currentType == type::floatLiteral or currentType == type::doubleLiteral)) { //if its not already a number type
+            if (!(currentType == type::unsignedIntLiteral or currentType == type::intLiteral or currentType == type::floatLiteral or currentType == type::doubleLiteral or currentType == type::variable)) { //if its not already a number type
                 interpretSymbol(startOfSymbol, i, currentType, source, bracketVector);
                 currentType = type::intLiteral;
                 startOfSymbol = i;
@@ -3352,8 +3361,8 @@ int main() {
     std::string sourceString;
 
     fillString(sourceString, inFile);
-    std::cout << "----: " << sourceString << std::endl;
-
+    std::cout << "Input: \n" << sourceString << std::endl;
+    std::cout << "\nOutput: \n";
     std::vector<bracket_information> bracketVector;
 
     std::unordered_map<std::string, type> tokenKeywordTable;
@@ -3381,18 +3390,17 @@ int main() {
     tokenKeywordTable["struct"] = type::structType;
     tokenKeywordTable["enum"] = type::enumType;
     tokenKeywordTable["union"] = type::unionType;
+    tokenKeywordTable["return"] = type::returnStatement;
 
 
     tokenize(sourceString, bracketVector, tokenKeywordTable);
     orderBrackets(bracketVector);
-    std::cout << "tokenVector.size() "  << tokenVector.size() << std::endl;
 
     AST_NODE* translation_unit = new AST_NODE;
     translation_unit->index = -1; //this is just set to -1 so that parse_block starts at 0
     translation_unit->endIndex = tokenVector.size();
     
     translation_unit->value = symbolTableInfo->tableStack.c.front();
-    std::cout << "parse block" << std::endl;
     parse_block(translation_unit);
 
     
