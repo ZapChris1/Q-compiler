@@ -3406,6 +3406,8 @@ int main() {
     
     printAST(translation_unit);
     std::cout << std::endl;
+    std::cout << "\nPress Enter to exit...";
+    std::cin.get();
 }
 
 // Run program: Ctrl + F5 or Debug > Start Without Debugging menu
