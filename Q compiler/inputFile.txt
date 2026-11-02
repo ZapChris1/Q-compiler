@@ -1,11 +1,6 @@
-int calculate(int value) {
-    int result = 0;
+struct k {
+	int x;
+} a;
 
-    if (value > 0) {
-        result = value + 10;
-    } else {
-        result = value + 20;
-    }
 
-    return result;
-}
+a.x = 1.2;

@@ -558,6 +558,7 @@ struct AST_NODE { //live on the heap(ptrs to them are in the branches vector) (w
     syntax_type type = syntax_type::null_type;
     void* value = nullptr;
     std::vector<AST_NODE*> branches;
+    bool constant = false;
 };
 
 struct token {
@@ -587,6 +588,7 @@ struct symbol_data {
     std::vector<AST_NODE*> arraySizes; //ptr to the part of the AST where the expression for the size(s) is (also used for function parameters by pointing to the parameter_definition)
     std::unordered_map<std::string, std::string> memberKeyTable; //used for structs and possibly unions
     std::unordered_map<std::string, size_t> enumMembers;
+    std::vector<symbol_data*> arguments;
     type_family family = type_family::Void;
     symbol_type type = symbol_type::Void;
     size_t size; //in bytes
@@ -746,7 +748,7 @@ public:
         std::unordered_map<std::string, symbol_data> newScope;
         symbolTableVector.push_back(newScope);
         tableStack.push(&(symbolTableVector.back()));
-        return &newScope;
+        return &(symbolTableVector.back());
     }
     std::unordered_map<std::string, symbol_data>* createFunctionScope() {
         std::unordered_map<std::string, symbol_data> newScope;
@@ -754,7 +756,7 @@ public:
         tableStack.push(&(symbolTableVector.back()));
         labelTableVector.push_back(newScope);
         labelTableStack.push(&(labelTableVector.back()));
-        return &newScope;
+        return &(symbolTableVector.back());
     }
 
     void exitScope() {
@@ -1145,6 +1147,7 @@ public:
                 conversionNode->index = valueNode->index;
                 conversionNode->endIndex = valueNode->endIndex;
                 valueNode->parent = conversionNode;
+                setLeft(underlyingTypeB);
                 return conversionNode;
             }
             else if (underlyingTypeB->typeObject == underlyingTypeA->typeObject) {
@@ -1158,19 +1161,39 @@ public:
                     conversionNode->index = valueNode->index;
                     conversionNode->endIndex = valueNode->endIndex;
                     valueNode->parent = conversionNode;
+                    setLeft(underlyingTypeB);
                     return conversionNode;
                 }
                 std::cout << "err, type: " << underlyingTypeA->name << " cannot be cast into: " << underlyingTypeB->name << " at: " << valueNode->index << std::endl;
+                setLeft(underlyingTypeB);
                 return valueNode;
             }
             else {
                 std::cout << "err, different modifiers so: " << underlyingTypeA->name << " cannot be cast into: " << underlyingTypeB->name << " at: " << valueNode->index << std::endl;
+                setLeft(underlyingTypeB);
                 return valueNode;
             }
         }
     }
 
-    //currently doesnt support ptr arithmetic yet
+    void checkFunctionArgs(AST_NODE* functionParameters) { //function type expected to be A
+        underlyingTypeB = symbolTableInfo->getIdentifier(functionParameters->key);
+        if (underlyingTypeB->arguments.size() != functionParameters->branches.size()) std::cout << "err, number of arguments mismatch at: " << functionParameters->index << std::endl;
+        else {
+            for (size_t i = 0; i < underlyingTypeB->arguments.size(); i++) {
+                AST_NODE* argumentNode = assignmentOperation(functionParameters->branches[i]);
+                popLeft();
+                functionParameters->branches[i] = argumentNode;
+                argumentNode->parent = functionParameters;
+            }
+        }
+    }
+
+    void reloadStack(size_t oldSize) {
+        for (size_t i = leftTypeStack.size(); i > oldSize; i--) leftTypeStack.pop();
+    }
+
+    //currently doesnt support ptr arithmetic yet    
     void arithmeticOperation(AST_NODE* operationNode, AST_NODE* leftNode, AST_NODE* rightNode) {
         //make sure to insert nodes for when type conversions do take place
         symbol_data* underlyingTypeA = getLeft();
@@ -1301,7 +1324,6 @@ public:
     //expects one input (right), writes over left with output
     void derefrenceOperation(size_t inputIndex) {
         symbol_data* input = underlyingTypeB;
-        symbol_data* output;
         if (input->family == type_family::pointer) {
             symbol_data* output = allocateNewLeft();
             *output = *input; //copying the existing type
@@ -1321,12 +1343,12 @@ public:
         }
     }
 
-    void structAccess(size_t inputIndex, std::string identifier) { //left is struct,
+    void structAccess(size_t inputIndex, std::string unencryptedIdentifier) { //left is struct, writes over it
         symbol_data* underlyingTypeA = getLeft();
         if (underlyingTypeA->type == symbol_type::Type and not underlyingTypeA->memberKeyTable.empty()) {
-            auto it = underlyingTypeA->memberKeyTable.find(identifier);
+            auto it = underlyingTypeA->memberKeyTable.find(unencryptedIdentifier);
             if (it != underlyingTypeA->memberKeyTable.end()) {
-                setLeft(extractType(symbolTableInfo->getIdentifier(underlyingTypeA->memberKeyTable[identifier])));
+                setLeft(extractType(symbolTableInfo->getIdentifier(underlyingTypeA->memberKeyTable[unencryptedIdentifier])));
             }
             else {
                 std::cout << "err, attempting to access nonexistent member of a non struct/union type, at: " << inputIndex << std::endl;
@@ -1393,16 +1415,24 @@ AST_NODE* parse_token(size_t inputIndex, AST_NODE* lastNode, bool nud, size_t en
     //type_checker.leftTypeStack.push(nullptr); //if its a null type we simply do not change this
 
     auto spawn_nud_node = [&inputNode, &inputIndex]() { //the returned node will have its type in the right underlying type
+        size_t oldSize = type_checker.leftTypeStack.size();
         AST_NODE* nextNode = pratt_parse_node(inputNode, inputIndex + 1, true);
-        type_checker.shiftToRight(); //shift the result of this to the right
+        if (type_checker.leftTypeStack.size() > oldSize) type_checker.shiftToRight(); //shift the result of this to the right (if there was one)
         return nextNode;
     };
 
-    auto unary_prefix_operation = [spawn_nud_node, inputNode, &inputIndex]() { //uses right hand side ie (symbol)token
+    auto const_check = [inputNode]() {
+        bool constant = true;
+        for (size_t i = 0; i < inputNode->branches.size() and constant; i++) constant = inputNode->branches[i]->constant;
+        inputNode->constant = constant;
+    };
+
+    auto unary_prefix_operation = [spawn_nud_node, inputNode, &inputIndex, const_check]() { //uses right hand side ie (symbol)token
         AST_NODE* nextNode = spawn_nud_node();
         nextNode->parent = inputNode;
         inputNode->branches.push_back(nextNode);
         inputNode->endIndex = nextNode->endIndex;
+        const_check();
     };
 
     auto unary_postfix_operation = [inputNode, lastNode, &inputIndex]() { //uses left hand side ie token(symbol)
@@ -1440,16 +1470,7 @@ AST_NODE* parse_token(size_t inputIndex, AST_NODE* lastNode, bool nud, size_t en
         binary_operation();
 
         std::string structKey = inputNode->branches[0]->key;
-        symbol_data* structData = symbolTableInfo->getIdentifier(structKey);
-        if (structData == nullptr) std::cout << "err, cannot find struct: " << structKey << " at: " << inputIndex << std::endl;
-        std::string key = type_checker.extractType(structData)->memberKeyTable.at(inputNode->branches[1]->key);
-        symbol_data* data = symbolTableInfo->getIdentifier(key);
-        if (data == nullptr) {
-            std::cout << "err, member of struct, at: " << inputIndex << std::endl;
-        }
-        else {
-            type_checker.leftTypeStack.push(type_checker.extractType(data)); //works the same for function calls
-        }
+        type_checker.structAccess(inputIndex, inputNode->branches[1]->key);
     }
         break;
     case type::structPointerAccess: {
@@ -1600,6 +1621,8 @@ AST_NODE* parse_token(size_t inputIndex, AST_NODE* lastNode, bool nud, size_t en
         if (nud) {
             inputNode->type = syntax_type::unary_negation;
             unary_prefix_operation();
+
+
         } else {
             inputNode->type = syntax_type::subtraction_operation;
             binary_operation();
@@ -1613,6 +1636,7 @@ AST_NODE* parse_token(size_t inputIndex, AST_NODE* lastNode, bool nud, size_t en
         else {
             inputNode->type = syntax_type::postfix_increment;
             unary_postfix_operation();
+            const_check();
         }
         break;
     case type::decrement:
@@ -1623,11 +1647,18 @@ AST_NODE* parse_token(size_t inputIndex, AST_NODE* lastNode, bool nud, size_t en
         else {
             inputNode->type = syntax_type::postfix_decrement;
             unary_postfix_operation();
+            const_check();
         }
         break;
-    case type::equals:
+    case type::equals: {
         inputNode->type = syntax_type::assignment;
         binary_operation();
+        AST_NODE* valueNode = type_checker.assignmentOperation(inputNode->branches[1]);
+        if (valueNode != inputNode->branches[1]) {
+            valueNode->parent = inputNode;
+            inputNode->branches[1] = valueNode;
+        }
+    }
         break;
     case type::plusEquals:
         inputNode->type = syntax_type::addition_assignment;
@@ -1677,7 +1708,7 @@ AST_NODE* parse_token(size_t inputIndex, AST_NODE* lastNode, bool nud, size_t en
     case type::openParenthesis:
         inputNode->endIndex = *(size_t*)((*inputToken).value);
         parse_parenthesis_in_expression(inputNode);
-
+        const_check();
         if (inputNode->type == syntax_type::parenthesized_type) {
             inputNode->type = syntax_type::type_cast;
             if (nud) {
@@ -1690,12 +1721,14 @@ AST_NODE* parse_token(size_t inputIndex, AST_NODE* lastNode, bool nud, size_t en
             else {
                 std::cout << "err passing a compile-time type into a function call at: " << inputNode->index << std::endl;
                 unary_postfix_operation();
+                const_check();
             }
         }
         else {
             if (!nud) {
                 inputNode->type = syntax_type::function_call; //implement semantic check in the future
                 unary_postfix_operation();
+                const_check(); //add logic for checking if the function is const later
                 inputNode->endIndex = *(size_t*)((*inputToken).value);
             }
             //if its nud then its just for grouping so nothing else required
@@ -1707,6 +1740,7 @@ AST_NODE* parse_token(size_t inputIndex, AST_NODE* lastNode, bool nud, size_t en
             inputNode->type = syntax_type::index_operation;
             parse_expression(inputNode);
             unary_postfix_operation();
+            const_check();
             inputNode->endIndex = *(size_t*)((*inputToken).value);
         }
         else std::cout << "err attempted to parse [ as nud at: " << inputIndex << std::endl;
@@ -1716,6 +1750,7 @@ AST_NODE* parse_token(size_t inputIndex, AST_NODE* lastNode, bool nud, size_t en
             inputNode->endIndex = *(size_t*)((*inputToken).value);
             inputNode->type = syntax_type::compound_literal_parameters;
             parse_expression(inputNode);
+            const_check();
         }
         else std::cout << "err attempted to parse { as led at: " << inputIndex << std::endl;
         break;
@@ -1749,9 +1784,11 @@ AST_NODE* parse_token(size_t inputIndex, AST_NODE* lastNode, bool nud, size_t en
         return nullptr;
     case type::intLiteral:
         type_checker.leftTypeStack.push(symbolTableInfo->getIdentifier("int"));
+        inputNode->constant = true;
         break;
     case type::floatLiteral:
         type_checker.leftTypeStack.push(symbolTableInfo->getIdentifier("float"));
+        inputNode->constant = true;
         break;
     default:
         std::cout << "err: unknown token: " << (size_t)inputToken->Type << "at: " << inputIndex << std::endl;
@@ -2179,11 +2216,12 @@ void parse_declaration_identifiers(size_t endIndex, AST_NODE* declaration_node, 
             if (lastIsAssignment) {
                 if (!(declaration_node->branches.empty())) {
                     AST_NODE* identifierNode = declaration_node->branches.back();
+                    size_t oldSize = type_checker.leftTypeStack.size();
                     AST_NODE* value = parse_expression(start - 1, position);
                     
                     type_checker.underlyingTypeB = type_checker.extractType(symbolTableInfo->getIdentifier(identifierNode->key));
                     value = type_checker.assignmentOperation(value);
-                    
+                    type_checker.reloadStack(oldSize); //use when you want to cull off all the top elements that the parse_expression and so on caused
                     identifierNode->branches.push_back(value);
                     value->parent = identifierNode;
                     identifierNode->endIndex = value->endIndex;
@@ -2246,11 +2284,13 @@ void parse_declaration_identifiers(size_t endIndex, AST_NODE* declaration_node, 
                     }
                     found:
                     AST_NODE* identifierNode = declaration_node->branches.back();
+                    size_t oldSize = type_checker.leftTypeStack.size();
                     AST_NODE* value = parse_expression(start - 1, expressionEndIndex);
                     
                     type_checker.underlyingTypeB = type_checker.extractType(symbolTableInfo->getIdentifier(identifierNode->key));
                     value = type_checker.assignmentOperation(value);
-
+                    type_checker.reloadStack(oldSize);
+                        
                     identifierNode->branches.push_back(value);
                     value->parent = identifierNode;
                     identifierNode->endIndex = value->endIndex;
@@ -2285,7 +2325,7 @@ end:
 }
 
 size_t parse_parameter_declaration_identifier(size_t endIndex, AST_NODE* declarationSpecifierNode) { //declaration_node->endIndex should be the end of the underlying type
-        
+        symbol_data* functionData = symbolTableInfo->getIdentifier(declarationSpecifierNode->parent->key);
         auto parse_prefix_modifiers = [](AST_NODE* identifierNode, size_t inputPosition, size_t start, symbol_data& currentSymbol) {
             for (size_t position = inputPosition; --position > start - 1;) { //prefix operators
                 if (tokenVector[position].Type == type::multiplication) {
@@ -2295,10 +2335,10 @@ size_t parse_parameter_declaration_identifier(size_t endIndex, AST_NODE* declara
             }
         };
 
-        auto parse_postfix_modifiers = [&parse_prefix_modifiers, &declarationSpecifierNode, &endIndex](AST_NODE* identifierNode, size_t start) {
+        auto parse_postfix_modifiers = [&parse_prefix_modifiers, &declarationSpecifierNode, &endIndex](AST_NODE* identifierNode, size_t start, symbol_data& currentSymbol) {
             size_t identifierPosition = identifierNode->index;
             size_t prefixPosition = identifierPosition;
-            symbol_data currentSymbol = *symbolTableInfo->declareVariable(identifierNode->key);
+            currentSymbol = *symbolTableInfo->declareVariable(identifierNode->key);
             for (size_t position = identifierPosition + 1; position < endIndex; position++) { //postfix operators
                 if (tokenVector[position].Type == type::openBracket) {
                     currentSymbol.typeObject.push_back(baseType::_array); //add logic for getting the size and etc of the array (for multi dim arrays)
@@ -2341,7 +2381,10 @@ size_t parse_parameter_declaration_identifier(size_t endIndex, AST_NODE* declara
                 identifierNode->index = position;
                 token* identifierToken = &tokenVector[position];
                 identifierNode->key = std::string((char*)identifierToken->value, identifierToken->size);
-                return parse_postfix_modifiers(identifierNode, start);
+                symbol_data currentSymbol;
+                auto out = parse_postfix_modifiers(identifierNode, start, currentSymbol);
+                functionData->arguments.push_back(&currentSymbol);
+                return out;
             }
             case type::equals: //supposed to be found in the postfix parser
                 std::cout << "err parameter declaration cannot have initializations: " << position << std::endl;
@@ -2540,7 +2583,9 @@ void parse_single_statement(AST_NODE* inputNode, size_t firstIndex, size_t end) 
     default:
         goto expression_case;
     expression_case: {
+        size_t oldSize = type_checker.leftTypeStack.size();
         AST_NODE* expressionNode = parse_expression(firstIndex - 1, end);
+        type_checker.reloadStack(oldSize);
         if (expressionNode != nullptr) {
             inputNode->branches.push_back(expressionNode);
             expressionNode->parent = inputNode;
@@ -2700,6 +2745,29 @@ void parse_block(AST_NODE* inputNode) { //inputNode->index is ( //endIndex is )
             break;
         }
         case type::returnStatement:
+            if (inputNode->type != syntax_type::function_definition) std::cout << "err, return statement must be connected to a function at: " << i << std::endl;
+            else {
+                AST_NODE* returnNode = new AST_NODE;
+                returnNode->index = i; returnNode->endIndex = i;
+                inputNode->branches.push_back(returnNode);
+                returnNode->parent = inputNode;
+                size_t oldSize = type_checker.leftTypeStack.size();
+                AST_NODE* returnExpression = parse_expression(i, inputNode->endIndex);
+                symbol_data* functionData = symbolTableInfo->getIdentifier(inputNode->key);
+                if (returnExpression == nullptr) {
+                    if (functionData->underlyingType->family != type_family::Void) std::cout << "err, expected return output at: " << i + 1 << std::endl;
+                }
+                else {
+                    type_checker.shiftToRight();
+                    type_checker.leftTypeStack.push(functionData->underlyingType);
+                    returnExpression = type_checker.assignmentOperation(returnExpression);
+                    returnNode->branches.push_back(returnExpression);
+                    returnExpression->parent = returnNode;
+                    returnNode->endIndex = returnExpression->endIndex;
+                }
+                type_checker.reloadStack(oldSize); //clear type stack (value does not need to stay there anymore)
+                i = returnNode->endIndex;
+            }
             break;
         case type::forStatement:
         {
@@ -2855,7 +2923,9 @@ void parse_block(AST_NODE* inputNode) { //inputNode->index is ( //endIndex is )
         default:
             goto expression_case;
         expression_case: {
+            size_t oldSize = type_checker.leftTypeStack.size();
             AST_NODE* expressionNode = parse_expression(i - 1, inputNode->endIndex);
+            
             if (expressionNode != nullptr) {
                 inputNode->branches.push_back(expressionNode);
                 expressionNode->parent = inputNode;
@@ -2864,6 +2934,7 @@ void parse_block(AST_NODE* inputNode) { //inputNode->index is ( //endIndex is )
             }
             else {
             }
+            type_checker.reloadStack(oldSize);
         }
         }
     }
@@ -2878,7 +2949,9 @@ AST_NODE* parse_condition(AST_NODE* parentNode, size_t index) {
         conditionNode->index = index;
         conditionNode->endIndex = *(size_t*)conditionToken->value;
         conditionNode->parent = parentNode;
+        size_t oldSize = type_checker.leftTypeStack.size();
         parse_expression(conditionNode);
+        type_checker.reloadStack(oldSize);
         parentNode->branches.push_back(conditionNode);
         return conditionNode;
     }
@@ -2963,7 +3036,12 @@ void parse_case_statement(AST_NODE* inputNode) {
     for (size_t i = position + 1; i < inputNode->parent->endIndex; i++) {
         if (tokenVector[i].Type == type::colon) {
             inputNode->endIndex = i;
+            size_t oldSize = type_checker.leftTypeStack.size();
             parse_expression(inputNode);
+            bool constant = true;
+            for (size_t i = 0; i < inputNode->branches.size() and constant; i++) constant = inputNode->branches[i]->constant;
+            if (type_checker.leftTypeStack.top()->family != type_family::integer or not constant) std::cout << "err, cases must be constant integers at: " << inputNode->index << std::endl;
+            type_checker.reloadStack(oldSize);
             goto out;
         }
     }
@@ -3406,8 +3484,8 @@ int main() {
     
     printAST(translation_unit);
     std::cout << std::endl;
-    std::cout << "\nPress Enter to exit...";
-    std::cin.get();
+    //std::cout << "\nPress Enter to exit...";
+    //std::cin.get();
 }
 
 // Run program: Ctrl + F5 or Debug > Start Without Debugging menu
