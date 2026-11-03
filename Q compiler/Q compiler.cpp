@@ -35,6 +35,9 @@ char constexpr BINDING_POWER_MULTIPLICATION = 13; //* //led
 char constexpr BINDING_POWER_DIVISION = 13; // / //led
 char constexpr BINDING_POWER_MODULUS = 13; //% //led
 
+char constexpr BINDING_POWER_ADDITION = 12;
+char constexpr BINDING_POWER_SUBTRACTION = 12;
+
 char constexpr BINDING_POWER_BITWISE_SHIFT_LEFT = 11; //<< //led
 char constexpr BINDING_POWER_BITWISE_SHIFT_RIGHT = 11; //>> //led
 
@@ -253,6 +256,10 @@ char getPriority(type inputType, bool nud) {
         case type::structAccess:
         case type::structPointerAccess:
             return BINDING_POWER_STRUCT_ACCESS;
+        case type::addition:
+            return BINDING_POWER_ADDITION;
+        case type::subtraction:
+            return BINDING_POWER_SUBTRACTION;
         case type::multiplication:
             return BINDING_POWER_MULTIPLICATION;
         case type::division:

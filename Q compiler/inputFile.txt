@@ -1,5 +1,5 @@
-struct K {
-	int x;
-} k;
+int a;
+int b;
+int c;
 
-float x = 1.2 + k.x;
+a + b * c;
