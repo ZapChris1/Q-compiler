@@ -381,6 +381,7 @@ enum class syntax_type {
     case_statement,
     goto_statement,
     goto_destination,
+    return_statement,
     break_statement,
     declarator,
     multiplication_operation,
@@ -473,6 +474,7 @@ std::ostream& operator<<(std::ostream& os, syntax_type t)
     case syntax_type::goto_statement: os << "goto_statement"; break;
     case syntax_type::goto_destination: os << "goto_destination"; break;
     case syntax_type::break_statement: os << "break_statement"; break;
+    case syntax_type::return_statement: os << "return_statement"; break;
     case syntax_type::declarator: os << "declarator"; break;
     case syntax_type::multiplication_operation: os << "multiplication_operation"; break;
     case syntax_type::division_operation: os << "division_operation"; break;
@@ -541,6 +543,7 @@ enum class type_family {
     integer,
     floating_point,
     pointer,
+    function,
 };
 std::ostream& operator<<(std::ostream& os, type_family& value)
 {
@@ -612,9 +615,6 @@ class symbol_table_info { //struct for ease of use //all heap allocation is hand
 public:
     symbol_table_info() {
         createLocalScope();
-        declareVariable("a"); declareVariable("b"); declareVariable("c");
-        declareVariable("d"); declareVariable("e"); declareVariable("f");
-        declareVariable("g"); declareVariable("h"); declareVariable("i");
         declareType("long long", 16)->family = type_family::integer;
         declareType("long", 8)->family = type_family::integer;
         declareType("int", 4)->family = type_family::integer;
@@ -1299,6 +1299,12 @@ public:
     symbol_data* allocateNewLeft() {
         allocatedData.push(symbol_data());
         return &allocatedData.top();
+    }
+
+    void swap(void) {
+        symbol_data* temp = underlyingTypeB;
+        underlyingTypeB = leftTypeStack.top();
+        setLeft(temp);
     }
 
     void popLeft(void) {
@@ -2064,7 +2070,7 @@ void parse_declaration_identifiers(size_t endIndex, AST_NODE* declaration_node, 
                 assert(valid_function);
                 valid_function = false;
                 if (not declaration_node->branches.empty()) {
-                    std::cout << "err, cannot have multiple declarations with a function declaraton at: " << position << std::endl;
+                    std::cout << "err, cannot have multiple declarations with a function declaration at: " << position << std::endl;
                 }
                 identifierNode->index = declaration_node->index;
                 currentSymbol.typeObject.push_back(baseType::_function);
@@ -2077,7 +2083,7 @@ void parse_declaration_identifiers(size_t endIndex, AST_NODE* declaration_node, 
                 parse_parameter_declaration(functionParameters);
 
                 symbol_data* underlyingTypeData = symbolTableInfo->getIdentifier(declaration_node->key);
-                underlyingTypeData->typeObject.insert(underlyingTypeData->typeObject.end(), currentSymbol.typeObject.begin(), currentSymbol.typeObject.end());
+                //underlyingTypeData->typeObject.insert(underlyingTypeData->typeObject.end(), currentSymbol.typeObject.begin(), currentSymbol.typeObject.end());
 
                 if (functionParameters->endIndex + 1 < tokenVector.size() and tokenVector[functionParameters->endIndex + 1].Type == type::openCurlyBracket) {
                     
@@ -2086,6 +2092,7 @@ void parse_declaration_identifiers(size_t endIndex, AST_NODE* declaration_node, 
 
                     currentSymbol.destinationNode = identifierNode;
                     currentSymbol.type = symbol_type::Function;
+                    currentSymbol.family = type_family::function;
                     AST_NODE* functionBody = new AST_NODE;
 
                     functionBody->parent = identifierNode;
@@ -2095,8 +2102,11 @@ void parse_declaration_identifiers(size_t endIndex, AST_NODE* declaration_node, 
                     functionBody->endIndex = *(size_t*)tokenVector[functionBody->index].value; //end }
                     identifierNode->endIndex = functionBody->endIndex;
                     
+                    size_t oldSize = type_checker.leftTypeStack.size();
+                    type_checker.leftTypeStack.push(symbolTableInfo->getIdentifier(declaration_node->key));
                     functionBody->value = symbolTableInfo->createFunctionScope();
                     parse_block(functionBody);
+                    type_checker.reloadStack(oldSize);
                     symbolTableInfo->exitScope();
                     
                     position = identifierNode->endIndex;
@@ -2133,7 +2143,6 @@ void parse_declaration_identifiers(size_t endIndex, AST_NODE* declaration_node, 
                         definitonData->arraySizes.push_back(functionParameters);
                         definitonData->destinationNode = identifierNode;
                     }
-
                     
                     return position;
                 } 
@@ -2745,21 +2754,20 @@ void parse_block(AST_NODE* inputNode) { //inputNode->index is ( //endIndex is )
             break;
         }
         case type::returnStatement:
-            if (inputNode->type != syntax_type::function_definition) std::cout << "err, return statement must be connected to a function at: " << i << std::endl;
-            else {
+            if (inputNode->parent->type != syntax_type::function_definition) std::cout << "err, return statement must be connected to a function at: " << i << std::endl;
+            else { //treat inputNode->parent as inputNode because the returnStatement should be parented to the function definition not its scope
                 AST_NODE* returnNode = new AST_NODE;
+                returnNode->type = syntax_type::return_statement;
                 returnNode->index = i; returnNode->endIndex = i;
-                inputNode->branches.push_back(returnNode);
-                returnNode->parent = inputNode;
+                inputNode->parent->branches.push_back(returnNode);
+                returnNode->parent = inputNode->parent;
                 size_t oldSize = type_checker.leftTypeStack.size();
                 AST_NODE* returnExpression = parse_expression(i, inputNode->endIndex);
-                symbol_data* functionData = symbolTableInfo->getIdentifier(inputNode->key);
+                type_checker.shiftToRight();
                 if (returnExpression == nullptr) {
-                    if (functionData->underlyingType->family != type_family::Void) std::cout << "err, expected return output at: " << i + 1 << std::endl;
+                    if (type_checker.leftTypeStack.top()->family != type_family::Void) std::cout << "err, expected return output at: " << i + 1 << std::endl;
                 }
                 else {
-                    type_checker.shiftToRight();
-                    type_checker.leftTypeStack.push(functionData->underlyingType);
                     returnExpression = type_checker.assignmentOperation(returnExpression);
                     returnNode->branches.push_back(returnExpression);
                     returnExpression->parent = returnNode;
