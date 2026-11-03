@@ -991,9 +991,7 @@ void parse_for_loop_parenthesis(AST_NODE* inputNode);
 void parse_parenthesis_in_expression(AST_NODE* parenthesisNode) {
     size_t index = parenthesisNode->index + 1;
     if (index >= parenthesisNode->endIndex) {
-        std::cout << "err expected content in () at: " << parenthesisNode->index << std::endl;
-        assert(index < parenthesisNode->endIndex);
-        return;
+        return; //empty parenthesis
     }
 
     auto parse_as_expression = [&parenthesisNode]() {
@@ -1732,10 +1730,13 @@ AST_NODE* parse_token(size_t inputIndex, AST_NODE* lastNode, bool nud, size_t en
         }
         else {
             if (!nud) {
+                if (lastNode->type != syntax_type::identifier) std::cout << "err, expected identifier at: " << lastNode->index << std::endl;
+                if (type_checker.leftTypeStack.top()->family != type_family::function) std::cout << "err, expected function type at:" << lastNode->index << std::endl;
                 inputNode->type = syntax_type::function_call; //implement semantic check in the future
                 unary_postfix_operation();
                 const_check(); //add logic for checking if the function is const later
                 inputNode->endIndex = *(size_t*)((*inputToken).value);
+                type_checker.setLeft(symbolTableInfo->getIdentifier(lastNode->key)->underlyingType); //replace the old type (identifier) with the new one (function return val) now that we know its a function
             }
             //if its nud then its just for grouping so nothing else required
         }
@@ -2074,6 +2075,8 @@ void parse_declaration_identifiers(size_t endIndex, AST_NODE* declaration_node, 
                 }
                 identifierNode->index = declaration_node->index;
                 currentSymbol.typeObject.push_back(baseType::_function);
+                currentSymbol.type = symbol_type::Function;
+                currentSymbol.family = type_family::function;
                 functionParameters = new AST_NODE;
                 functionParameters->parent = identifierNode;
                 functionParameters->type = syntax_type::parameter_declaration; //output specfication for the function
@@ -2091,8 +2094,6 @@ void parse_declaration_identifiers(size_t endIndex, AST_NODE* declaration_node, 
                     parse_prefix_modifiers(identifierNode, prefixPosition, start, currentSymbol);
 
                     currentSymbol.destinationNode = identifierNode;
-                    currentSymbol.type = symbol_type::Function;
-                    currentSymbol.family = type_family::function;
                     AST_NODE* functionBody = new AST_NODE;
 
                     functionBody->parent = identifierNode;
@@ -2764,8 +2765,9 @@ void parse_block(AST_NODE* inputNode) { //inputNode->index is ( //endIndex is )
                 size_t oldSize = type_checker.leftTypeStack.size();
                 AST_NODE* returnExpression = parse_expression(i, inputNode->endIndex);
                 type_checker.shiftToRight();
+                type_checker.swap(); //underlying type B is now function type and A is what we are attempting to return
                 if (returnExpression == nullptr) {
-                    if (type_checker.leftTypeStack.top()->family != type_family::Void) std::cout << "err, expected return output at: " << i + 1 << std::endl;
+                    if (type_checker.underlyingTypeB->family != type_family::Void) std::cout << "err, expected return output at: " << i + 1 << std::endl;
                 }
                 else {
                     returnExpression = type_checker.assignmentOperation(returnExpression);
