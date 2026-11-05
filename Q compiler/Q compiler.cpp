@@ -767,10 +767,11 @@ public:
     }
 
     void exitScope() {
+        assert(!tableStack.empty());
         if (!labelTableStack.empty() and tableStack.top() == labelTableStack.top()) {
-            labelTableStack.pop();
+            labelTableStack.pop(); //only exit label scope if it is the same as the scope we are currently exiting (aka exiting a function)
         }
-        tableStack.pop();
+        tableStack.pop(); //always exit identifier scope
     }
 
     std::string generateUnnamedKey(void) {
@@ -991,7 +992,7 @@ void parse_for_loop(AST_NODE* inputNode);
 void parse_goto_statement(AST_NODE* inputNode);
 void parse_case_statement(AST_NODE* inputNode);
 void parse_grammar_statement(AST_NODE* inputNode);
-void parse_parameter_declaration(AST_NODE* inputNode);
+void parse_parameter_declaration(AST_NODE* inputNode, symbol_data* functionData);
 void parse_array_size_specifier(AST_NODE* inputNode);
 void parse_for_loop_parenthesis(AST_NODE* inputNode);
 
@@ -1062,7 +1063,7 @@ void parse_parenthesis_in_expression(AST_NODE* parenthesisNode) {
 
 void parse_arguments(AST_NODE* inputNode) { //assuming index is '(' and endindex is ')'
     size_t lastCommaIndex = inputNode->index + 1;
-    for (size_t index = inputNode->index + 1; index < inputNode->endIndex; inputNode++) {
+    for (size_t index = inputNode->index + 1; index < inputNode->endIndex; index++) {
         token* currentToken = &tokenVector[index];
         switch (currentToken->Type) {
         case type::openParenthesis:
@@ -1999,11 +2000,13 @@ void parse_declaration_identifiers(size_t endIndex, AST_NODE* declaration_node, 
     size_t startIndex = declaration_node->endIndex + 1;
     size_t start = startIndex;
 
-    auto parse_prefix_modifiers = [declaration_node](AST_NODE* identifierNode, size_t inputPosition, size_t start, symbol_data& currentSymbol) {
-        for (size_t position = inputPosition; position-- >= start;) { //prefix operators
+    auto parse_prefix_modifiers = [declaration_node](AST_NODE* identifierNode, size_t& inputPosition, size_t start, symbol_data& currentSymbol) {
+        for (size_t position = inputPosition; --position >= start;) { //prefix operators
             if (tokenVector[position].Type == type::multiplication) {
                 currentSymbol.typeObject.push_back(baseType::_pointer);
-                currentSymbol.family = type_family::pointer;
+                if (currentSymbol.family == type_family::Void) currentSymbol.family = type_family::pointer; //avoid casting functions into int just because they return int
+                position--;
+                inputPosition = position;
                 if (start > declaration_node->endIndex) return true;
             }
         }
@@ -2035,7 +2038,6 @@ void parse_declaration_identifiers(size_t endIndex, AST_NODE* declaration_node, 
                 identifierNode->endIndex = arraySizeExpression->endIndex;
             } else if (tokenVector[position].Type == type::closeParenthesis) {
                 if (parse_prefix_modifiers(identifierNode, prefixPosition, *(size_t*)tokenVector[position].value, currentSymbol)) enclosed_ptr = true;
-                prefixPosition = position;
                 identifierNode->endIndex = position;
             } 
             else if (tokenVector[position].Type == type::openParenthesis) {
@@ -2058,16 +2060,21 @@ void parse_declaration_identifiers(size_t endIndex, AST_NODE* declaration_node, 
                     }
                 };
                 
-                if (enclosed_ptr) {
+                if (enclosed_ptr) { //if its a function ptr 
                     valid_function = false;
                     currentSymbol.typeObject.push_back(baseType::_function);
+                    std::string functionDataKey = symbolTableInfo->generateUnnamedKey();
+                    symbol_data* functionData = symbolTableInfo->declareFunction(functionDataKey);
+                    functionData->family = type_family::function;
+                    functionData->underlyingType = symbolTableInfo->getIdentifier(declaration_node->key);;
+                    currentSymbol.underlyingType = functionData;
                     functionParameters = new AST_NODE;
                     functionParameters->parent = identifierNode;
                     functionParameters->type = syntax_type::parameter_declaration; //output specfication for the function
                     functionParameters->index = position; //start (
                     functionParameters->endIndex = *(size_t*)tokenVector[functionParameters->index].value; //end )
                     identifierNode->branches.push_back(functionParameters);
-                    parse_parameter_declaration(functionParameters);
+                    parse_parameter_declaration(functionParameters, functionData);
                     identifierNode->endIndex = functionParameters->endIndex;
                     position = functionParameters->endIndex;
                     continue;
@@ -2090,7 +2097,7 @@ void parse_declaration_identifiers(size_t endIndex, AST_NODE* declaration_node, 
                 functionParameters->index = position; //start (
                 functionParameters->endIndex = *(size_t*)tokenVector[functionParameters->index].value; //end )
                 identifierNode->branches.push_back(functionParameters);
-                parse_parameter_declaration(functionParameters);
+                parse_parameter_declaration(functionParameters, &currentSymbol); //this is fine since althought currentSymbol is on the stack, it is at a higher scope lvl
 
                 symbol_data* underlyingTypeData = symbolTableInfo->getIdentifier(declaration_node->key);
                 //underlyingTypeData->typeObject.insert(underlyingTypeData->typeObject.end(), currentSymbol.typeObject.begin(), currentSymbol.typeObject.end());
@@ -2194,7 +2201,7 @@ void parse_declaration_identifiers(size_t endIndex, AST_NODE* declaration_node, 
                     }
                     else {
                         parse_prefix_modifiers(identifierNode, prefixPosition, start, currentSymbol);
-                        currentSymbol.underlyingType = symbolTableInfo->getIdentifier(declaration_node->key);
+                        if (currentSymbol.underlyingType == nullptr) currentSymbol.underlyingType = symbolTableInfo->getIdentifier(declaration_node->key);
                         currentSymbol.type = symbol_type::Variable;
                         symbolTableInfo->declareIdentifier(identifierNode->key, currentSymbol);
                     }
@@ -2263,9 +2270,19 @@ void parse_declaration_identifiers(size_t endIndex, AST_NODE* declaration_node, 
             identifierNode->index = position;
             identifierNode->endIndex = position;
             size_t newPosition = parse_postfix_modifiers(identifierNode, start);
-            
+            symbol_data* currentSymbol = symbolTableInfo->getIdentifier(identifierNode->key);
             if (identifierNode->type == syntax_type::null_type) {
                 identifierNode->type = syntax_type::identifier;
+            }
+            if (currentSymbol->family == type_family::pointer and currentSymbol->underlyingType != nullptr
+                and currentSymbol->underlyingType->family == type_family::function) {
+                bool found_function_marker = false;
+                for (size_t i = 0; i < currentSymbol->typeObject.size(); i++) {
+                    if (currentSymbol->typeObject[i] == baseType::_function) {
+                        found_function_marker = true;
+                        currentSymbol->underlyingType->typeObject.insert(currentSymbol->underlyingType->typeObject.end(), currentSymbol->typeObject.begin() + i, currentSymbol->typeObject.end()); //copy over the data (ie data about underlying type like being a pointer)
+                    }
+                }
             }
             
             if (newPosition == 0) {
@@ -2341,8 +2358,7 @@ end:
     }
 }
 
-size_t parse_parameter_declaration_identifier(size_t endIndex, AST_NODE* declarationSpecifierNode) { //declaration_node->endIndex should be the end of the underlying type
-        symbol_data* functionData = symbolTableInfo->getIdentifier(declarationSpecifierNode->parent->key);
+size_t parse_parameter_declaration_identifier(size_t endIndex, AST_NODE* declarationSpecifierNode, symbol_data* functionData) { //declaration_node->endIndex should be the end of the underlying type
         auto parse_prefix_modifiers = [](AST_NODE* identifierNode, size_t inputPosition, size_t start, symbol_data& currentSymbol) {
             for (size_t position = inputPosition; --position > start - 1;) { //prefix operators
                 if (tokenVector[position].Type == type::multiplication) {
@@ -2400,7 +2416,9 @@ size_t parse_parameter_declaration_identifier(size_t endIndex, AST_NODE* declara
                 identifierNode->key = std::string((char*)identifierToken->value, identifierToken->size);
                 symbol_data currentSymbol;
                 auto out = parse_postfix_modifiers(identifierNode, start, currentSymbol);
-                functionData->arguments.push_back(&currentSymbol);
+                symbol_data* argPointer = symbolTableInfo->declareIdentifier(identifierNode->key, currentSymbol);
+                if (argPointer == nullptr) symbolTableInfo->getIdentifier(identifierNode->key);
+                functionData->arguments.push_back(argPointer);
                 return out;
             }
             case type::equals: //supposed to be found in the postfix parser
@@ -3009,11 +3027,11 @@ void parse_if_statement(AST_NODE* inputNode) {
 }
 
 void parse_switch_statement(AST_NODE* inputNode) {
+    symbolTableInfo->switchStack.push(inputNode);
     size_t position = inputNode->index;
     AST_NODE* conditionNode = parse_condition(inputNode, position + 1);
     AST_NODE* bodyNode = parse_statement_body(inputNode, conditionNode->endIndex + 1);
     inputNode->endIndex = bodyNode->endIndex;
-    symbolTableInfo->switchStack.push(inputNode);
 }
 
 void parse_for_loop(AST_NODE* inputNode) {
@@ -3084,7 +3102,7 @@ void parse_grammar_statement(AST_NODE* inputNode) {
     }
 }
 
-void parse_parameter_declaration(AST_NODE* inputNode) {
+void parse_parameter_declaration(AST_NODE* inputNode, symbol_data* functionData) {
     size_t position = inputNode->index;
     for (size_t i = position + 1; i < inputNode->endIndex; i++) {
         AST_NODE* declarationSpecifierNode = parse_declaration_specifier(i, inputNode->endIndex);
@@ -3092,7 +3110,7 @@ void parse_parameter_declaration(AST_NODE* inputNode) {
         inputNode->branches.push_back(declarationSpecifierNode);
         i = declarationSpecifierNode->endIndex + 1;
         if (i < inputNode->endIndex) {
-            i = parse_parameter_declaration_identifier(inputNode->endIndex, declarationSpecifierNode);
+            i = parse_parameter_declaration_identifier(inputNode->endIndex, declarationSpecifierNode, functionData);
         }
         if (i == 0) break;
     }
@@ -3100,8 +3118,9 @@ void parse_parameter_declaration(AST_NODE* inputNode) {
 
 void parse_array_size_specifier(AST_NODE* inputNode) { //may implement semantic checking in the future which is the reason this function exists and isnt just parse_expression
     parse_expression(inputNode);
+    if (type_checker.leftTypeStack.top()->family != type_family::integer) std::cout << "expected integer type for array size specification at: " << inputNode->index << std::endl;
+    if (not inputNode->branches.back()->constant) std::cout << "expected constant for array size specification at: " << inputNode->index << std::endl;
 }
-
 void parse_for_loop_parenthesis(AST_NODE* inputNode) { //add semantic checks
     size_t position = inputNode->index;
     token* currentToken = &tokenVector[inputNode->index + 1];
@@ -3222,6 +3241,7 @@ void tokenize(std::string& source, std::vector<bracket_information>& bracketVect
 
     auto peek_forwards = [sourceLength, &source, &i](char inputChar) {
         if (i < sourceLength) { //i is incremented before use if the previous cond in the and is true
+            assert(i + 1 < source.size());
             if (source[i + 1] == inputChar) {
                 i++;
                 return true;
@@ -3278,15 +3298,12 @@ void tokenize(std::string& source, std::vector<bracket_information>& bracketVect
             }
             break;
         case '-':
-            if (peek_forwards('=')) {
-                specific_lex(type::plusEquals);
-            } else if (peek_forwards('-')) {
-                specific_lex(type::decrement);
-            } else if (peek_forwards('>')) {
-                specific_lex(type::structAccess);
-            } else {
-                specific_lex(type::subtraction);
-            }
+            lex_complex_token(
+                {
+                    {'-', type::decrement},
+                    {'=', type::minusEquals},
+                    {'>', type::structPointerAccess},
+                }, type::subtraction);
             break;
         case '+':
         {

@@ -1,5 +1,5 @@
-int a;
-int b;
-int c;
-
-a + b * c;
+int *a[10];
+int (*a)[10];
+int *func(int);
+int (*func)(int);
+int (*a[5])(int);
