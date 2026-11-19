@@ -558,7 +558,95 @@ std::ostream& operator<<(std::ostream& os, type_family& value)
     return os;
 }
 
-struct AST_NODE { //live on the heap(ptrs to them are in the branches vector) (will have to be freed during deconstruction of AST)
+struct ARENA_CHUNK {
+    size_t size = 0; //index for next element not current
+    void* buffer = nullptr;
+};
+
+template<typename T>
+class Arena { //does not support accesses just made for holding data
+public:
+    Arena(size_t chunkSize = 8192) { //chunk size is in elements
+        if (chunkSize == 0) std::cout << "err, chunk size is zero!" << std::endl;
+        assert(chunkSize > 0);
+        this->chunkSize = chunkSize;
+    }
+    
+    T* addElement(T element) {
+        ARENA_CHUNK* chunk = &(chunks.back());
+        if (chunk->size >= chunkSize) { //if theres no room
+            createChunk();
+            chunk = &(chunks.back());
+        }
+        if (holes.empty()) {
+            chunk->buffer[chunk->size] = element;
+            chunk->size++;
+            return &(chunk->buffer[chunk->size - 1]);
+        }
+        else {
+            T* location = *(holes.top());
+            *location = element;
+            chunk->size++;
+            holes.pop();
+            return location;
+        }
+    }
+
+    void removeElement(T* address) {
+        for (size_t i = 0; i < chunks.size(); i++) {
+            if (chunks[i].buffer < address and ((chunks[i].buffer - address) < chunks[i].size)) { //if its within the buffer
+                holes.push(address);
+                chunks[i].size--;
+            }
+        }
+        std::cout << "err, couldnt find address: " << address << " in the arena to remove" << std::endl;
+    }
+
+    void clear(void) {
+        for (size_t i = 0; i < chunks.size(); i++) {
+            freeChunk(i);
+            chunks.clear();
+        }
+    }
+
+    bool empty(void) {
+        return (chunks.empty() or chunks.back().size == 0);
+    }
+
+    size_t size(void) {
+        if (empty()) return 0;
+        else {
+            return ((chunks.size() - 1) * chunkSize) + chunks.back().size;
+        }
+    }
+
+private:
+    void createChunk() {
+        void* buffer = malloc(chunkSize * sizeof(T));
+        ARENA_CHUNK chunk(0, buffer);
+        chunks.push_back(buffer);
+    }
+
+    void freeChunk(size_t index) {
+        ARENA_CHUNK* chunk = chunks[index];
+        free(chunk->buffer); 
+    }
+
+    size_t chunkSize; //in elements not bytes
+    std::vector<ARENA_CHUNK> chunks;
+    std::stack<T*> holes; //gaps in chunks to allocate into
+};
+
+class AST_NODE { //live in allocator (only ptrs to them are in the branches vector)
+public:
+    static Arena<AST_NODE> allocator;
+    static void* operator new(size_t size) {
+        return allocator.addElement(AST_NODE()); //returns a pointer to a blank AST_NODE
+    }
+    static void operator delete(void* location) {
+        allocator.removeElement((AST_NODE*)location);
+    }
+
     AST_NODE* parent = nullptr;
     size_t index = 0; //defines its position on tokenVector //can be used to index with substring on an identifier
     size_t endIndex = 0; //used for () and etc (for position across multi-tokens/range)
@@ -3518,6 +3606,8 @@ int main() {
     
     printAST(translation_unit);
     std::cout << std::endl;
+
+    AST_NODE::allocator.clear(); //deallocate all the AST_NODEs to prevent a memory leak
     //std::cout << "\nPress Enter to exit...";
     //std::cin.get();
 }
