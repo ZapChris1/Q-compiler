@@ -572,20 +572,25 @@ public:
         this->chunkSize = chunkSize;
     }
     
-    T* addElement(T element) {
-        ARENA_CHUNK* chunk = &(chunks.back());
-        if (chunk->size >= chunkSize) { //if theres no room
+    T* allocate() { //does not actually write to the memory, only reserves it (new operator overload will automatically call constructor there)
+        ARENA_CHUNK* chunk = nullptr;
+        if (chunks.empty()) {
             createChunk();
             chunk = &(chunks.back());
         }
+        else {
+            chunk = &(chunks.back());
+            if (chunk->size >= chunkSize) { //if theres no room
+                createChunk();
+                chunk = &(chunks.back());
+            }
+        }
         if (holes.empty()) {
-            chunk->buffer[chunk->size] = element;
             chunk->size++;
-            return &(chunk->buffer[chunk->size - 1]);
+            return &(((T*)chunk->buffer)[chunk->size - 1]);
         }
         else {
-            T* location = *(holes.top());
-            *location = element;
+            T* location = holes.top();
             chunk->size++;
             holes.pop();
             return location;
@@ -594,7 +599,7 @@ public:
 
     void removeElement(T* address) {
         for (size_t i = 0; i < chunks.size(); i++) {
-            if (chunks[i].buffer < address and ((chunks[i].buffer - address) < chunks[i].size)) { //if its within the buffer
+            if ((T*)(chunks[i].buffer) < address and (((T*)(chunks[i].buffer) - address) < chunks[i].size)) { //if its within the buffer
                 holes.push(address);
                 chunks[i].size--;
             }
@@ -622,14 +627,13 @@ public:
 
 private:
     void createChunk() {
-        void* buffer = malloc(chunkSize * sizeof(T));
-        ARENA_CHUNK chunk(0, buffer);
-        chunks.push_back(buffer);
+        ARENA_CHUNK chunk = { 0, nullptr };
+        chunk.buffer = malloc(chunkSize * sizeof(T));
+        chunks.push_back(chunk);
     }
 
     void freeChunk(size_t index) {
-        ARENA_CHUNK* chunk = chunks[index];
-        free(chunk->buffer); 
+        free(chunks[index].buffer);
     }
 
     size_t chunkSize; //in elements not bytes
@@ -641,7 +645,7 @@ class AST_NODE { //live in allocator (only ptrs to them are in the branches vect
 public:
     static Arena<AST_NODE> allocator;
     static void* operator new(size_t size) {
-        return allocator.addElement(AST_NODE()); //returns a pointer to a blank AST_NODE
+        return (void*)allocator.allocate(); //returns a pointer to a blank AST_NODE
     }
     static void operator delete(void* location) {
         allocator.removeElement((AST_NODE*)location);
@@ -658,6 +662,8 @@ public:
     std::vector<AST_NODE*> branches;
     bool constant = false;
 };
+
+Arena<AST_NODE> AST_NODE::allocator;
 
 struct token {
     void* value = nullptr; //malloced, this will have to be freed during deconstruction of the AST 
